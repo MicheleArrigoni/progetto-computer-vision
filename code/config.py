@@ -1,10 +1,3 @@
-"""Configurazione centrale del progetto.
-
-Questo modulo raccoglie percorsi, parametri di preprocessing e impostazioni per
-la costruzione dei grafi EEG. Centralizzare questi valori evita di copiarli in
-piu' script e rende piu' semplice modificarli durante gli esperimenti.
-"""
-
 from pathlib import Path
 
 
@@ -22,7 +15,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG = {
     # Percorsi principali: input BIDS/derivatives e output pronto per HGCN.
     "project_root": PROJECT_ROOT,
-    "dataset_dir": PROJECT_ROOT / "ds004504" / "derivatives",
+    "dataset_dir": PROJECT_ROOT / "dataset",
+    "derivatives_dir": PROJECT_ROOT / "dataset" / "derivatives",
     "output_dir": PROJECT_ROOT / "data_hgcn_ready",
 
     # Frequenza di campionamento target dopo eventuale ricampionamento.
@@ -41,16 +35,16 @@ CONFIG = {
 
     # Segmentazione temporale: ogni epoca dura 10 secondi e, con overlap 0.0,
     # le finestre non si sovrappongono.
-    "epoch_length_sec": 10,
+    "epoch_length_sec": 1,
     "overlap": 0.0,
 
     # Parametri per il test di causalita' di Granger.
     # `maxlag` e' il massimo ritardo valutato; `alpha` e' la soglia di
-    # significativita'; `max_diffs` limita il numero di differenziazioni usate
+    # significativita'; `max_diff` limita il numero di differenziazioni usate
     # per rendere stazionarie le serie temporali.
     "maxlag": 4,
     "alpha": 0.05,
-    "max_diffs": 2,
+    "max_diff": 2,
 
     # Ordine canonico dei canali EEG usato per costruire matrici e grafi.
     # Mantenere questo ordine fisso evita disallineamenti tra campioni diversi.

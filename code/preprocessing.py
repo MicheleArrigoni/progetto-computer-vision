@@ -40,7 +40,6 @@ def get_subject_label(subject_id: str):
     else:
         raise ValueError(f"Invalid subject ID: {subject_id}")
 
-
 def get_subjects_list(data_dir: str):
     '''
     Ritorna la lista ordinata di directory soggetto presenti in `data_dir`.
@@ -79,11 +78,15 @@ def load_subject_raw(subject_dir):
     Raises:
         RuntimeError: se non è presente esattamente un file .set nella sottocartella 'eeg'.
     '''
+
+    # Lista di file eeg .set nella sottocartella 'eeg' del  singolo soggetto
     eeg_files = list((subject_dir/"eeg").glob("*_eeg.set"))
 
     if len(eeg_files) != 1:
         raise RuntimeError(f"error: expected one .set file \n, found: {len (eeg_files)}")
     
+
+    # Crea il file mne.io.Raw a partire dal file EEGLAB .set, con preload=True per caricare i dati in memoria
     raw = mne.io.read_raw_eeglab(
         eeg_files[0],
         preload = True,
@@ -107,7 +110,6 @@ def load_subject_raw(subject_dir):
 
     return raw
 
-
 def order_channels(raw, channel_order):
     '''
     Verifica la presenza dei canali richiesti in `raw` e restituisce una copia con i canali
@@ -129,7 +131,9 @@ def order_channels(raw, channel_order):
     if missing:
         raise RuntimeError(f"{missing} channels are missing, subject{raw.getName()}")
 
-    raw = raw.copy().pick_channel(channel_order, ordered = True)
+    # `RawEEGLAB` objects do not expose `pick_channel` (singular).
+    # Use `pick_channels` which accepts a list of names and preserves the order.
+    raw = raw.copy().pick(picks=channel_order)
     return raw
 
 def filter_and_resample(raw):
@@ -187,7 +191,6 @@ def split_in_epochs(eeg, fs , epoch_lenght_sec):
     # shape of the output will be (n_epochs, n_channels, samples_per_epoch)
     return np.stack(epochs)
 
-
 def make_epoch_stationary(epoch, channels, max_diff):
     '''
     Applica differenziazioni progressive per rendere stazionaria l'epoca (per canale), valutando
@@ -232,7 +235,7 @@ def make_epoch_stationary(epoch, channels, max_diff):
         
         if diff_id < max_diff:
             current = np.diff(current, axis = 1)
-            report["n_diffs"] += 1,
+            report["n_diffs"] += 1
             report["diffed"] = True
 
     return current, report
@@ -254,7 +257,6 @@ def passes_adf_test(x: np.ndarray, alpha: float = 0.05, maxlag: int = 4) -> bool
         # In caso di errori di convergenza numerica, restituisce False per sicurezza
         return False
 
-
 def passes_kpss_test(x: np.ndarray, alpha: float = 0.05) -> bool:
     try:
         with warnings.catch_warnings():
@@ -266,9 +268,7 @@ def passes_kpss_test(x: np.ndarray, alpha: float = 0.05) -> bool:
     except Exception:
         return False
 
-
-
-def is_good_epoch(epoch, amp_treshold):
+def is_good_epoch(epoch, amp_treshold = 150.0):
     '''
     Controlla la qualità di una epoca: valori finiti, ampiezza sotto soglia e varianza non nulla.
 
@@ -279,7 +279,7 @@ def is_good_epoch(epoch, amp_treshold):
     Returns:
         bool: True se l'epoca è considerata buona, False altrimenti.
     '''
-    if not np.isfinite(epoch).all:
+    if not np.isfinite(epoch).all():
         return False
 
     if np.max(np.abs(epoch)) > amp_treshold:
@@ -291,10 +291,10 @@ def is_good_epoch(epoch, amp_treshold):
     
     return True
 
-
 def zscore_epoch(epoch, eps=1e-8):
     """
     Esegue la normalizzazione Z-score (standardizzazione) a livello di singolo canale per un'epoca.
+    Rappresenta di quanto un valore si discosta dalla media del canale in termini di deviazioni standard.
     
     Args:
         epoch (np.ndarray): Dati della singola epoca. Shape: (n_channels, samples_per_epoch)
@@ -307,7 +307,6 @@ def zscore_epoch(epoch, eps=1e-8):
     std = epoch.std(axis=1, keepdims=True)    # Calcola deviazione standard per canale. Shape: (n_channels, 1)
     return (epoch - mean) / (std + eps)
 
-
 def crop_to_same_lenght(epochs):
     '''
     Esegue il crop di tutte le epoche alla lunghezza minima trovata tra di esse.
@@ -319,7 +318,7 @@ def crop_to_same_lenght(epochs):
         np.ndarray: array shape (n_epochs, n_channels, min_samples).
     '''
     min_len = min(epoch.shape[1] for epoch in epochs)
-    return np.stack(epoch[:,:min_len] for epoch in epochs)
+    return np.stack([epoch[:, :min_len] for epoch in epochs])
 
 def preprocess_epochs_for_subject(epochs):
     '''
@@ -352,7 +351,7 @@ def preprocess_epochs_for_subject(epochs):
         epoch = zscore_epoch(epoch)
         epoch_stat, report = make_epoch_stationary(
             epoch,
-            channel_order = CONFIG["channel_order"],
+            channels = CONFIG["channel_order"],
             max_diff = CONFIG["max_diff"]        
         )
 
@@ -361,30 +360,56 @@ def preprocess_epochs_for_subject(epochs):
         stationarity_report.append(report)
 
         quality_report["kept_epochs"] += 1
+    # after evaluating all epochs, check how many good epochs we collected
+    if len(good_epochs) == 0:
+        return None, stationarity_report, quality_report
 
-        if len(good_epochs) == 0:
-            return None, stationarity_report, quality_report
-        
-        processed_epochs = crop_to_same_lenght(good_epochs)
-        return processed_epochs, stationarity_report, quality_report
+    processed_epochs = crop_to_same_lenght(good_epochs)
+    return processed_epochs, stationarity_report, quality_report
 
 def stationary_feature_for_channel(stationarity_report, channel_idx):
+    '''
+    Calcola una feature riassuntiva di stazionarietà per un singolo canale.
+
+    La funzione scorre i report prodotti da `make_epoch_stationary` e conta:
+    - quante epoche hanno coinvolto il canale indicato
+    - quante di queste epoche hanno richiesto almeno una differenziazione
+
+    Il valore restituito è la frazione:
+
+        epoche_differenziate / epoche_valide_per_il_canale
+
+    Args:
+        stationarity_report (list): lista di report per epoca, generata da
+            `make_epoch_stationary`.
+        channel_idx (int): indice del canale dentro `CONFIG["channel_order"]`.
+
+    Returns:
+        float: valore compreso tra 0 e 1, oppure 0.0 se il canale non compare
+        in nessun report valido.
+    '''
     diffs_required = 0
     total = 0
+    ch_name = CONFIG["channel_order"][channel_idx]
 
     for epoch_report in stationarity_report:
-        ch_name = CONFIG["channel_order"][channel_idx]
+        # Recupera i controlli registrati per questo canale nella singola epoca.
         checks = epoch_report["channels"].get(ch_name, [])
 
+        # Se il canale non è stato valutato in questa epoca, la ignoriamo.
         if len (checks) == 0: continue
 
         total += 1
+
+        # Se l'epoca è stata differenziata almeno una volta, contribuisce al conteggio.
         if epoch_report["diffed"]:
             diffs_required += 1
 
-        if total == 0:
-            return 0.0
+    # Se non abbiamo trovato alcuna epoca valida per il canale, evitiamo divisione per zero.
+    if total == 0:
+        return 0.0
 
+    # Valore alto = il canale ha spesso richiesto differenziazione per risultare stazionario.
     return diffs_required / total
 
 def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
@@ -417,7 +442,6 @@ def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
             bp_list.append(bp)
 
     return float(np.mean(frac_list if relative else bp_list)) if (relative and frac_list) or (not relative and bp_list) else 0.0
-
 
 def build_node_features(preprocessed_epochs, fs, stationarity_report):
     '''
