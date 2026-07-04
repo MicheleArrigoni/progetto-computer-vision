@@ -28,6 +28,30 @@ def prepare_adjacency_for_hgcn(A, config):
     return A.astype(np.float32)
 
 
+def combine_adjacencies(adjacencies, weights):
+    A_combined = None
+    total_weight = 0.0
+
+    for method, weight in weights.items():
+        if method not in adjacencies:
+            continue
+
+        A = np.asarray(adjacencies[method], dtype=np.float32)
+        weight = float(weight)
+
+        if A_combined is None:
+            A_combined = weight * A
+        else:
+            A_combined += weight * A
+
+        total_weight += weight
+
+    if A_combined is None or total_weight == 0.0:
+        raise ValueError("No adjacency matrices available for combination")
+
+    return (A_combined / total_weight).astype(np.float32)
+
+
 def build_subject_graph(
     subject_id,
     label_name,
@@ -43,8 +67,15 @@ def build_subject_graph(
     Costruisce il dizionario finale del grafo associato a un soggetto.
     """
     main_method = config["adjacency_method"]
-    if main_method not in adjacencies:
-        raise ValueError(f"Missing main adjacency method: {main_method}")
+    if main_method == "combined":
+        adj = combine_adjacencies(
+            adjacencies,
+            config["adjacency_weights"],
+        )
+    else:
+        if main_method not in adjacencies:
+            raise ValueError(f"Missing main adjacency method: {main_method}")
+        adj = adjacencies[main_method]
 
     label = config["labels"][label_name]
     X = np.asarray(X, dtype=np.float32)
@@ -62,7 +93,7 @@ def build_subject_graph(
     return {
         "subject_id": subject_id,
         "x": X,
-        "adj": adjacencies[main_method].astype(np.float32),
+        "adj": adj.astype(np.float32),
         "adjacencies": {
             method: A.astype(np.float32)
             for method, A in adjacencies.items()

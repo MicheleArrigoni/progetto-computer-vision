@@ -69,7 +69,12 @@ CONFIG = {
     # Strategia per costruire l'adiacenza del grafo.
     # `symmetrize_adjacency=True` rende non orientata una matrice potenzialmente
     # direzionale; `add_self_loops=False` evita archi nodo->se stesso.
-    "adjacency_method": "granger",
+    "adjacency_method": "combined",  # "granger", "lingam", "pcmci", "combined"
+    "adjacency_weights": {
+    "granger": 0.5,
+    "lingam": 0.25,
+    "pcmci": 0.25,
+    },
     "symmetrize_adjacency": True,
     "add_self_loops": False,
 }
