@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import pickle
 from pathlib import Path
@@ -31,7 +31,7 @@ def get_subject_label(subject_id: str):
     # the patient from id = 37 to id = 65 are "CN"
     # the others are "FDT"
 
-    if 0 <= n <= 36:
+    if 1 <= n <= 36:
         return "AD"
     elif 37 <= n <= 65:
         return "CN"
@@ -160,6 +160,14 @@ def filter_and_resample(raw):
             CONFIG["notch_freq"],
             verbose = False
         )
+    
+    raw.resample(
+        sfreq=CONFIG["target_fs"],
+        npad="auto",
+        verbose=False
+    )
+
+
     return raw
 
 def split_in_epochs(eeg, fs , epoch_lenght_sec):
@@ -191,7 +199,7 @@ def split_in_epochs(eeg, fs , epoch_lenght_sec):
     # shape of the output will be (n_epochs, n_channels, samples_per_epoch)
     return np.stack(epochs)
 
-def make_epoch_stationary(epoch, channels, max_diff):
+def make_epoch_stationary(epoch, channels, max_diffs):
     '''
     Applica differenziazioni progressive per rendere stazionaria l'epoca (per canale), valutando
     ADF e KPSS ad ogni passo.
@@ -199,7 +207,7 @@ def make_epoch_stationary(epoch, channels, max_diff):
     Args:
         epoch (np.ndarray): epoca shape (n_channels, samples_per_epoch).
         channels (List[str]): lista dei nomi dei canali corrispondenti agli indici di `epoch`.
-        max_diff (int): numero massimo di differenziazioni consentite.
+        max_diffs (int): numero massimo di differenziazioni consentite.
 
     Returns:
         Tuple[np.ndarray, dict]: (epoca trasformata, report sulla stazionarietà contenente per-canale
@@ -213,7 +221,7 @@ def make_epoch_stationary(epoch, channels, max_diff):
         "channels": {}
     }
 
-    for diff_id in range (max_diff + 1):
+    for diff_id in range (max_diffs + 1):
         non_stationary = []
         
         for idx, ch in enumerate(channels):
@@ -233,7 +241,7 @@ def make_epoch_stationary(epoch, channels, max_diff):
         if len (non_stationary) == 0:
             return current, report
         
-        if diff_id < max_diff:
+        if diff_id < max_diffs:
             current = np.diff(current, axis = 1)
             report["n_diffs"] += 1
             report["diffed"] = True
@@ -352,11 +360,11 @@ def preprocess_epochs_for_subject(epochs):
         epoch_stat, report = make_epoch_stationary(
             epoch,
             channels = CONFIG["channel_order"],
-            max_diff = CONFIG["max_diff"]        
+            max_diffs = CONFIG["max_diffs"]
         )
 
 
-        good_epochs.append(epoch)
+        good_epochs.append(epoch_stat)
         stationarity_report.append(report)
 
         quality_report["kept_epochs"] += 1
@@ -434,9 +442,9 @@ def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
     for epoch in ch_epochs:
         f, Pxx = welch(epoch, fs=fs, nperseg=nperseg)
         mask = (f >= fmin) & (f <= fmax)
-        bp = np.trapz(Pxx[mask], f[mask]) if mask.any() else 0.0
+        bp = np.trapezoid(Pxx[mask], f[mask]) if mask.any() else 0.0
         if relative:
-            total = np.trapz(Pxx, f) if f.size and Pxx.size else 0.0
+            total = np.trapezoid(Pxx, f) if f.size and Pxx.size else 0.0
             frac_list.append(bp / total if total > 0 else 0.0)
         else:
             bp_list.append(bp)
@@ -465,46 +473,41 @@ def build_node_features(preprocessed_epochs, fs, stationarity_report):
     Returns:
         np.ndarray: matrice delle feature nodali shape (n_channels, 8), dtype float32.
     '''
-    n_epochs, n_channels, n_samples = preprocessed_epochs.shape
+    _, n_channels, _ = preprocessed_epochs.shape
     features = []
+
+    bands = {
+        "delta": (0.5, 4),
+        "theta": (4, 8),
+        "alpha": (8, 13),
+        "beta": (13, 24),
+    }
 
     for ch_idx in range(n_channels):
         ch_epochs = preprocessed_epochs[:, ch_idx, :]
 
-    # definizione bande
-    bandpower = mean_bandpower_epochs(
-        ch_epochs,
-        fs = CONFIG["fs"],
-        bands = {
-            "delta": (0.5, 4),  
-            "theta": (4, 8),
-            "alpha": (8, 13),
-            "beta": (13, 24)
-            }
+        bandpower = {
+            name: mean_bandpower_epochs(ch_epochs, fs, band)
+            for name, band in bands.items()
+        }
+
+        stat_value = stationary_feature_for_channel(
+            stationarity_report,
+            channel_idx = ch_idx
         )
-    mean = ch_epochs.mean()
-    std = ch_epochs.std()
-    var = ch_epochs.var()
 
-    # calcolo frazione di epoche che hanno richiesto differenziazione
-    stat_value = stationary_feature_for_channel(
-        stationarity_report,
-        channel_idx = ch_idx
-    )
+        node_features = [
+            bandpower["delta"],
+            bandpower["theta"],
+            bandpower["alpha"],
+            bandpower["beta"],
+            float(ch_epochs.mean()),
+            float(ch_epochs.std()),
+            float(ch_epochs.var()),
+            stat_value,
+        ]
 
-
-    node_features = [
-        bandpower["delta"],
-        bandpower["theta"],
-        bandpower["alpha"],
-        bandpower["beta"],
-        mean,
-        std,
-        var,
-        stat_value  
-    ]
-
-    features.append(node_features)
+        features.append(node_features)
 
     return np.array(features, dtype=np.float32)
 

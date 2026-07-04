@@ -1,3 +1,5 @@
+﻿import warnings
+
 import numpy as np
 from statsmodels.tsa.stattools import grangercausalitytests
 
@@ -27,7 +29,10 @@ def compute_granger_adjacency(processed_epochs, max_diff, alpha):
     A = np.zeros((n_channels, n_channels), dtype = np.float32)
 
     # Per ogni epoca calcoliamo i test di Granger per tutte le coppie di canali
-    for epoch in processed_epochs:
+    for epoch_idx, epoch in enumerate(processed_epochs):
+        if epoch_idx % 100 == 0:
+            print(f"    Granger epoch {epoch_idx + 1}/{n_epochs}")
+
         for target in range(n_channels):
             for source in range(n_channels):
                 if source == target:
@@ -42,7 +47,9 @@ def compute_granger_adjacency(processed_epochs, max_diff, alpha):
 
                 try:
                     # results è un dict: key = lag, value = tuple con i risultati dei test
-                    results = grangercausalitytests(pair_data, maxlag = max_diff, verbose = False)
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message="verbose is deprecated.*", category=FutureWarning)
+                        results = grangercausalitytests(pair_data, maxlag = max_diff, verbose = False)
                     significant_lags = 0
 
                     # controlliamo la statistica F (ssr_ftest) per ogni lag
@@ -68,3 +75,7 @@ def compute_granger_adjacency(processed_epochs, max_diff, alpha):
         A /= n_epochs
 
     return A
+
+
+
+

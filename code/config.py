@@ -35,16 +35,20 @@ CONFIG = {
 
     # Segmentazione temporale: ogni epoca dura 10 secondi e, con overlap 0.0,
     # le finestre non si sovrappongono.
-    "epoch_length_sec": 1,
+    "epoch_length_sec": 10,
     "overlap": 0.0,
 
     # Parametri per il test di causalita' di Granger.
     # `maxlag` e' il massimo ritardo valutato; `alpha` e' la soglia di
-    # significativita'; `max_diff` limita il numero di differenziazioni usate
+    # significativita'; `max_diffs` limita il numero di differenziazioni usate
     # per rendere stazionarie le serie temporali.
     "maxlag": 4,
     "alpha": 0.05,
-    "max_diff": 2,
+    "max_diffs": 2,
+
+    # Metodi di causalita' da calcolare. Per smoke test rapidi si puo' ridurre
+    # temporaneamente a ["granger"].
+    "causality_methods": ["granger", "lingam", "pcmci"],
 
     # Ordine canonico dei canali EEG usato per costruire matrici e grafi.
     # Mantenere questo ordine fisso evita disallineamenti tra campioni diversi.

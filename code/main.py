@@ -1,66 +1,175 @@
+﻿import numpy as np
+
 from config import CONFIG
+from dataset import (
+    build_subject_graph,
+    prepare_adjacency_for_hgcn,
+    save_hgcn_ready_dataset,
+)
 from preprocessing import (
     preprocess_epochs_for_subject,
     load_subject_raw,
     order_channels,
     filter_and_resample,
     split_in_epochs,
+    get_subject_label,
+    build_node_features,
 )
-from granger import compute_granger_adjacency
+
+
+def select_evenly_spaced_epochs(processed_epochs, stationarity_report, n_epochs):
+    indices = np.linspace(
+        0,
+        processed_epochs.shape[0] - 1,
+        n_epochs,
+        dtype=int,
+    )
+
+    selected_epochs = processed_epochs[indices]
+    selected_report = [stationarity_report[i] for i in indices]
+    return selected_epochs, selected_report
+
+
+def compute_graphs(processed_epochs):
+    graphs = {}
+
+    if "granger" in CONFIG["causality_methods"]:
+        from granger_causality import compute_granger_adjacency
+        graphs["granger"] = compute_granger_adjacency(
+            processed_epochs,
+            CONFIG["maxlag"],
+            CONFIG["alpha"],
+        )
+
+    if "lingam" in CONFIG["causality_methods"]:
+        from lingam_causality import compute_lingam_adjacency
+        graphs["lingam"] = compute_lingam_adjacency(processed_epochs)
+
+    if "pcmci" in CONFIG["causality_methods"]:
+        from pcmci_causality import compute_pcmci_adjacency
+        graphs["pcmci"] = compute_pcmci_adjacency(
+            processed_epochs,
+            tau_max=CONFIG["maxlag"],
+            alpha_level=CONFIG["alpha"],
+        )
+
+    return graphs
+
 
 def main():
-    # 1. Preprocess: per ogni soggetto, carichiamo i dati, applichiamo
-    # filtri, segmentazione in epoche e test di stazionarietà.
-    all_processed_epochs = []
-    print("Starting preprocessing for subjects...")
-    for subject_dir in CONFIG["derivatives_dir"].glob("sub-*"):
-        print(f"Preprocessing {subject_dir.name}...")
+    subjects = sorted(CONFIG["derivatives_dir"].glob("sub-*"))
+    print(f"Starting preprocessing for {len(subjects)} subjects...")
+
+    processed_subjects = []
+    failed_subjects = []
+
+    for subject_dir in subjects[:3]:
+        subject_id = subject_dir.name
+        print(f"\nPreprocessing {subject_id}...")
+
         try:
+            label_name = get_subject_label(subject_id)
+            label = CONFIG["labels"][label_name]
+
             raw = load_subject_raw(subject_dir)
             raw = order_channels(raw, CONFIG["channel_order"])
             raw = filter_and_resample(raw)
 
             eeg = raw.get_data()
-            fs = raw.info.get('sfreq')
+            fs = float(raw.info["sfreq"])
 
-            epochs = split_in_epochs(eeg, fs, CONFIG.get('epoch_length_sec', CONFIG.get('epoch_lenght_sec', 10)))
-
+            epochs = split_in_epochs(eeg, fs, CONFIG["epoch_length_sec"])
             processed_epochs, stationarity_report, quality_report = preprocess_epochs_for_subject(epochs)
 
             if processed_epochs is None:
-                print(f"  {subject_dir.name}: no valid epochs, skipping")
+                print(f"  {subject_id}: no valid epochs, skipping")
                 continue
 
-            all_processed_epochs.append(processed_epochs)
-            print(f"  {subject_dir.name}: kept {quality_report['kept_epochs']} / {quality_report['total_epochs']} epochs")
-        except Exception as e:
-            print(f"  {subject_dir.name}: preprocessing failed: {e}")
-
-    # 2. Costruzione dei grafi: usiamo le epoche preprocessate per calcolare
-    # matrici di adiacenza causale basate sul test di Granger.
-    adjacency_matrices = []
-    print("Computing Granger adjacency matrices...")
-    for idx, processed_epochs in enumerate(all_processed_epochs):
-        print(f" Computing Granger for subject #{idx+1} ({processed_epochs.shape[0]} epochs)...")
-        try:
-            A = compute_granger_adjacency(
-                processed_epochs,
-                max_diff = CONFIG["max_diff"],
-                alpha = CONFIG["alpha"]
+            print(
+                f"  kept {quality_report['kept_epochs']} / "
+                f"{quality_report['total_epochs']} epochs"
             )
-            adjacency_matrices.append(A)
-            print(f"  Done: adjacency shape {A.shape}")
+
+            processed_subjects.append({
+                "subject_id": subject_id,
+                "label_name": label_name,
+                "label": label,
+                "fs": fs,
+                "processed_epochs": processed_epochs,
+                "stationarity_report": stationarity_report,
+                "quality_report": quality_report,
+            })
+
         except Exception as e:
-            print(f"  Granger computation failed for subject #{idx+1}: {e}")
+            failed_subjects.append((subject_id, str(e)))
+            print(f"  {subject_id}: preprocessing failed: {e}")
 
-    # 3. Preparazione dei dati per il modello: a questo punto abbiamo le matrici
-    # di adiacenza e possiamo costruire i dataset pronti per l'addestramento di HGCN.
-    # Questa parte dipende molto dall'architettura specifica del modello e dalle
-    # scelte di design (es. come rappresentare le features dei nodi, se usare
-    # grafi dinamici o statici, ecc.). Qui potremmo normalizzare le matrici,
-    # estrarre features aggiuntive dai nodi (es. bandpower) e salvare tutto in
-    # un formato compatibile con la pipeline di addestramento.
+    if not processed_subjects:
+        print("\nNo valid subjects to process.")
+        return
 
+    min_epochs = min(
+        subject["processed_epochs"].shape[0]
+        for subject in processed_subjects
+    )
+    print(f"\nCropping all valid subjects to {min_epochs} evenly spaced epochs.")
+    print("Starting feature and graph computation...")
+
+    subject_graphs = []
+
+    for subject in processed_subjects:
+        subject_id = subject["subject_id"]
+        print(f"\nBuilding sample for {subject_id}...")
+
+        try:
+            processed_epochs, stationarity_report = select_evenly_spaced_epochs(
+                subject["processed_epochs"],
+                subject["stationarity_report"],
+                min_epochs,
+            )
+
+            print("  computing node features...")
+            node_features = build_node_features(
+                processed_epochs,
+                fs=subject["fs"],
+                stationarity_report=stationarity_report,
+            )
+            print("  node features done")
+
+            adjacencies = compute_graphs(processed_epochs)
+            adjacencies = {
+                method: prepare_adjacency_for_hgcn(A, CONFIG)
+                for method, A in adjacencies.items()
+            }
+
+            graph = build_subject_graph(
+                subject_id=subject_id,
+                label_name=subject["label_name"],
+                X=node_features,
+                adjacencies=adjacencies,
+                preprocessed_epochs=processed_epochs,
+                stationarity_report=stationarity_report,
+                quality_report=subject["quality_report"],
+                fs=subject["fs"],
+                config=CONFIG,
+            )
+
+            subject_graphs.append(graph)
+            print("  graph ready")
+
+        except Exception as e:
+            failed_subjects.append((subject_id, str(e)))
+            print(f"  {subject_id}: feature/graph computation failed: {e}")
+
+    if subject_graphs:
+        output_dir = save_hgcn_ready_dataset(subject_graphs, CONFIG)
+        print(f"\nSaved HGCN-ready dataset to {output_dir}")
+
+    print(f"\nPipeline completed. Saved {len(subject_graphs)} / {len(processed_subjects)} valid subjects.")
+    if failed_subjects:
+        print("Failed subjects:")
+        for subject_id, error in failed_subjects:
+            print(f"  {subject_id}: {error}")
 
 
 if __name__ == "__main__":
