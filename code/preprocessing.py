@@ -4,7 +4,8 @@ import pickle
 from pathlib import Path
 import numpy as np
 from scipy.signal import welch
-from statsmodels.tsa.stattools import grangercausalitytests, adfuller, kpss, InterpolationWarning
+from statsmodels.tsa.stattools import grangercausalitytests, adfuller, kpss
+from statsmodels.tools.sm_exceptions import InterpolationWarning
 import warnings
 
 import mne
@@ -256,7 +257,7 @@ def passes_adf_test(x: np.ndarray, alpha: float = 0.05, maxlag: int = 4) -> bool
     """
     try:
         # Calcoliamo il test di Dickey-Fuller aumentato
-        result = adfuller(x, maxlag=maxlag)
+        result = adfuller(x, maxlag=maxlag, result_object=False)
         p_value = result[1]  # Il p-value è il secondo elemento restituito
         
         # Supera il test se il p-value è inferiore o uguale alla soglia alpha
@@ -265,18 +266,18 @@ def passes_adf_test(x: np.ndarray, alpha: float = 0.05, maxlag: int = 4) -> bool
         # In caso di errori di convergenza numerica, restituisce False per sicurezza
         return False
 
-def passes_kpss_test(x: np.ndarray, alpha: float = 0.05) -> bool:
+def passes_kpss_test(x: np.ndarray, alpha: float = 0.05, result_object: bool = False) -> bool:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", InterpolationWarning)
-            result = kpss(x, regression='c', nlags="auto")
+            result = kpss(x, regression='c', nlags="auto", result_object=result_object)
 
-        p_value = result[1]
+        p_value = result[1] if isinstance(result, tuple) else result.pvalue
         return p_value > alpha
     except Exception:
         return False
 
-def is_good_epoch(epoch, amp_treshold = 150.0):
+def is_good_epoch(epoch, amp_treshold = 150e-6):
     '''
     Controlla la qualità di una epoca: valori finiti, ampiezza sotto soglia e varianza non nulla.
 
@@ -338,9 +339,10 @@ def preprocess_epochs_for_subject(epochs):
 
     Returns:
         Tuple[np.ndarray or None, list, dict]: (preprocessed_epochs o None se nessuna valida,
-        stationarity_report, quality_report).
+        raw_good_epochs, quality_report).
     '''
     good_epochs = []
+    raw_good_epochs = []
     stationarity_report = []
 
     quality_report = {
@@ -357,6 +359,8 @@ def preprocess_epochs_for_subject(epochs):
             continue
 
         epoch = zscore_epoch(epoch)
+
+        raw_good_epochs.append(epoch)
         epoch_stat, report = make_epoch_stationary(
             epoch,
             channels = CONFIG["channel_order"],
@@ -365,60 +369,14 @@ def preprocess_epochs_for_subject(epochs):
 
 
         good_epochs.append(epoch_stat)
-        stationarity_report.append(report)
 
         quality_report["kept_epochs"] += 1
     # after evaluating all epochs, check how many good epochs we collected
     if len(good_epochs) == 0:
-        return None, stationarity_report, quality_report
+        return None,[], quality_report
 
     processed_epochs = crop_to_same_lenght(good_epochs)
-    return processed_epochs, stationarity_report, quality_report
-
-def stationary_feature_for_channel(stationarity_report, channel_idx):
-    '''
-    Calcola una feature riassuntiva di stazionarietà per un singolo canale.
-
-    La funzione scorre i report prodotti da `make_epoch_stationary` e conta:
-    - quante epoche hanno coinvolto il canale indicato
-    - quante di queste epoche hanno richiesto almeno una differenziazione
-
-    Il valore restituito è la frazione:
-
-        epoche_differenziate / epoche_valide_per_il_canale
-
-    Args:
-        stationarity_report (list): lista di report per epoca, generata da
-            `make_epoch_stationary`.
-        channel_idx (int): indice del canale dentro `CONFIG["channel_order"]`.
-
-    Returns:
-        float: valore compreso tra 0 e 1, oppure 0.0 se il canale non compare
-        in nessun report valido.
-    '''
-    diffs_required = 0
-    total = 0
-    ch_name = CONFIG["channel_order"][channel_idx]
-
-    for epoch_report in stationarity_report:
-        # Recupera i controlli registrati per questo canale nella singola epoca.
-        checks = epoch_report["channels"].get(ch_name, [])
-
-        # Se il canale non è stato valutato in questa epoca, la ignoriamo.
-        if len (checks) == 0: continue
-
-        total += 1
-
-        # Se l'epoca è stata differenziata almeno una volta, contribuisce al conteggio.
-        if epoch_report["diffed"]:
-            diffs_required += 1
-
-    # Se non abbiamo trovato alcuna epoca valida per il canale, evitiamo divisione per zero.
-    if total == 0:
-        return 0.0
-
-    # Valore alto = il canale ha spesso richiesto differenziazione per risultare stazionario.
-    return diffs_required / total
+    return processed_epochs, raw_good_epochs,  quality_report
 
 def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
     """
@@ -451,7 +409,7 @@ def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
 
     return float(np.mean(frac_list if relative else bp_list)) if (relative and frac_list) or (not relative and bp_list) else 0.0
 
-def build_node_features(preprocessed_epochs, fs, stationarity_report):
+def build_node_features(preprocessed_epochs, fs):
     '''
     Costruisce il vettore di feature per ciascun canale a partire dalle epoche preprocessate.
 
@@ -460,6 +418,7 @@ def build_node_features(preprocessed_epochs, fs, stationarity_report):
       - bandpower theta (4-8 Hz)
       - bandpower alpha (8-13 Hz)
       - bandpower beta  (13-24 Hz)
+      - bandpower gamma (24-40 Hz) 
       - mean (valore medio del segnale)
       - std (deviazione standard)
       - var (varianza)
@@ -481,6 +440,7 @@ def build_node_features(preprocessed_epochs, fs, stationarity_report):
         "theta": (4, 8),
         "alpha": (8, 13),
         "beta": (13, 24),
+        "gamma": (24, 40),
     }
 
     for ch_idx in range(n_channels):
@@ -491,23 +451,17 @@ def build_node_features(preprocessed_epochs, fs, stationarity_report):
             for name, band in bands.items()
         }
 
-        stat_value = stationary_feature_for_channel(
-            stationarity_report,
-            channel_idx = ch_idx
-        )
-
         node_features = [
             bandpower["delta"],
             bandpower["theta"],
             bandpower["alpha"],
             bandpower["beta"],
+            bandpower["gamma"],
             float(ch_epochs.mean()),
             float(ch_epochs.std()),
             float(ch_epochs.var()),
-            stat_value,
         ]
 
         features.append(node_features)
 
     return np.array(features, dtype=np.float32)
-

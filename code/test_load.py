@@ -4,7 +4,8 @@ import pickle
 from pathlib import Path
 import numpy as np
 from scipy.signal import welch
-from statsmodels.tsa.stattools import grangercausalitytests, adfuller, kpss, InterpolationWarning
+from statsmodels.tsa.stattools import grangercausalitytests, adfuller, kpss
+from statsmodels.tools.sm_exceptions import InterpolationWarning
 import warnings
 
 import mne
@@ -54,7 +55,7 @@ def list_subjects(dataset_dir: str) -> list:
 # =====================================================================
 # 6.1 Caricamento 
 # =====================================================================
-def load_subject_raw(subject_dir: Path) -> mne.io.Raw:
+def load_subject_raw(subject_dir: Path) -> mne.io.BaseRaw:
     """
     Individua il file EEGLAB (*_eeg.set) del singolo soggetto e lo carica via MNE.
     """
@@ -84,7 +85,7 @@ def load_subject_raw(subject_dir: Path) -> mne.io.Raw:
 # =====================================================================
 # Allineamento dei canali 
 # =====================================================================
-def select_and_order_channels(raw: mne.io.Raw, channel_order: list) -> mne.io.Raw:
+def select_and_order_channels(raw: mne.io.BaseRaw, channel_order: list) -> mne.io.BaseRaw:
     """
     Seleziona e ordina i canali in modo rigido e coerente per la HGCN.
     Il nodo 0 corrisponderà sempre al primo canale, il nodo 1 al secondo, ecc.
@@ -103,7 +104,7 @@ def select_and_order_channels(raw: mne.io.Raw, channel_order: list) -> mne.io.Ra
 # Rimozione dei drift lenti e del rumore ad alta frequenza.
 # Con target_fs a 50 Hz, la banda passante applicata è 0.5 Hz <= f < 24 Hz.
 # =====================================================================
-def filter_and_resample(raw: mne.io.Raw, config: dict) -> mne.io.Raw:
+def filter_and_resample(raw: mne.io.BaseRaw, config: dict) -> mne.io.BaseRaw:
     """
     Applica i filtri passa-banda, il filtro notch e riduce la frequenza di campionamento.
     """
@@ -430,7 +431,7 @@ if __name__ == "__main__":
                 
                 # Esecuzione Fase 3
                 raw_preprocessed = filter_and_resample(raw_ordered, CONFIG)
-                final_matrix = raw_preprocessed.get_data()
+                final_matrix: np.ndarray = raw_preprocessed.get_data()
                 # final_matrix mantiene la shape bidimensionale originale, es. (19, n_samples_post_resampling)
                 print(f" -> Fase 3 completata. Matrice EEG preelaborata estratta con successo [Dim: {final_matrix.shape}].")
 

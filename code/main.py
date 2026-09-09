@@ -1,11 +1,7 @@
 ﻿import numpy as np
 
 from config import CONFIG
-from dataset import (
-    build_subject_graph,
-    prepare_adjacency_for_hgcn,
-    save_hgcn_ready_dataset,
-)
+
 from preprocessing import (
     preprocess_epochs_for_subject,
     load_subject_raw,
@@ -16,19 +12,11 @@ from preprocessing import (
     build_node_features,
 )
 
-
-def select_evenly_spaced_epochs(processed_epochs, stationarity_report, n_epochs):
-    indices = np.linspace(
-        0,
-        processed_epochs.shape[0] - 1,
-        n_epochs,
-        dtype=int,
-    )
-
-    selected_epochs = processed_epochs[indices]
-    selected_report = [stationarity_report[i] for i in indices]
-    return selected_epochs, selected_report
-
+from dataset_module import(
+    prepare_adjacency_for_hgcn,
+    build_subject_graph,
+    save_hgcn_ready_dataset,
+)
 
 def compute_graphs(processed_epochs):
     graphs = {}
@@ -55,7 +43,6 @@ def compute_graphs(processed_epochs):
 
     return graphs
 
-
 def main():
     subjects = sorted(CONFIG["derivatives_dir"].glob("sub-*"))
     print(f"Starting preprocessing for {len(subjects)} subjects...")
@@ -63,7 +50,7 @@ def main():
     processed_subjects = []
     failed_subjects = []
 
-    for subject_dir in subjects[:3]:
+    for subject_dir in subjects:
         subject_id = subject_dir.name
         print(f"\nPreprocessing {subject_id}...")
 
@@ -77,9 +64,10 @@ def main():
 
             eeg = raw.get_data()
             fs = float(raw.info["sfreq"])
+            raw_good_epochs = []
 
             epochs = split_in_epochs(eeg, fs, CONFIG["epoch_length_sec"])
-            processed_epochs, stationarity_report, quality_report = preprocess_epochs_for_subject(epochs)
+            processed_epochs, raw_good_epochs, quality_report = preprocess_epochs_for_subject(epochs)
 
             if processed_epochs is None:
                 print(f"  {subject_id}: no valid epochs, skipping")
@@ -96,7 +84,7 @@ def main():
                 "label": label,
                 "fs": fs,
                 "processed_epochs": processed_epochs,
-                "stationarity_report": stationarity_report,
+                "raw_good_epochs": raw_good_epochs,
                 "quality_report": quality_report,
             })
 
@@ -122,17 +110,13 @@ def main():
         print(f"\nBuilding sample for {subject_id}...")
 
         try:
-            processed_epochs, stationarity_report = select_evenly_spaced_epochs(
-                subject["processed_epochs"],
-                subject["stationarity_report"],
-                min_epochs,
-            )
+            processed_epochs = subject["processed_epochs"][:min_epochs]
+            raw_good_epochs = np.asarray(subject["raw_good_epochs"])[:min_epochs]
 
             print("  computing node features...")
             node_features = build_node_features(
-                processed_epochs,
+                raw_good_epochs,
                 fs=subject["fs"],
-                stationarity_report=stationarity_report,
             )
             print("  node features done")
 
@@ -148,14 +132,13 @@ def main():
                 X=node_features,
                 adjacencies=adjacencies,
                 preprocessed_epochs=processed_epochs,
-                stationarity_report=stationarity_report,
                 quality_report=subject["quality_report"],
                 fs=subject["fs"],
                 config=CONFIG,
             )
 
             subject_graphs.append(graph)
-            print("  graph ready")
+            print("graph ready")
 
         except Exception as e:
             failed_subjects.append((subject_id, str(e)))

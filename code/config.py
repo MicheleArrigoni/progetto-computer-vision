@@ -21,21 +21,21 @@ CONFIG = {
 
     # Frequenza di campionamento target dopo eventuale ricampionamento.
     # Ridurre la frequenza aiuta a contenere costo computazionale e memoria.
-    "target_fs": 50,
+    "target_fs": 100,
 
     # Banda del filtro passa-banda EEG.
     # Manteniamo le componenti tra 0.5 e 24 Hz, tipiche per analisi su ritmi EEG
     # lenti/medi, rimuovendo drift molto lenti e componenti ad alta frequenza.
     "low_freq": 0.5,
-    "high_freq": 24.0,
+    "high_freq": 40.0,
 
     # Frequenza del filtro notch per attenuare il rumore di rete elettrica.
     # In Europa il disturbo principale e' tipicamente a 50 Hz.
     "notch_freq": 50.0,
 
-    # Segmentazione temporale: ogni epoca dura 10 secondi e, con overlap 0.0,
+    # Segmentazione temporale: ogni epoca dura 5 secondi e, con overlap 0.0,
     # le finestre non si sovrappongono.
-    "epoch_length_sec": 10,
+    "epoch_length_sec": 5,
     "overlap": 0.0,
 
     # Parametri per il test di causalita' di Granger.
@@ -55,7 +55,7 @@ CONFIG = {
     # Metodi di causalita' da calcolare. Per smoke test rapidi si puo' ridurre
     # temporaneamente a ["granger"].
     "causality_methods": ["granger", "lingam", "pcmci"],
-
+    "adjacency_method": "granger",
     # Ordine canonico dei canali EEG usato per costruire matrici e grafi.
     # Mantenere questo ordine fisso evita disallineamenti tra campioni diversi.
     "channel_order": [
@@ -71,16 +71,5 @@ CONFIG = {
         "CN": 0,
         "FTD": 2,
     },
-
-    # Strategia per costruire l'adiacenza del grafo.
-    # `symmetrize_adjacency=True` rende non orientata una matrice potenzialmente
-    # direzionale; `add_self_loops=False` evita archi nodo->se stesso.
-    "adjacency_method": "combined",  # "granger", "lingam", "pcmci", "combined"
-    "adjacency_weights": {
-    "granger": 0.5,
-    "lingam": 0.25,
-    "pcmci": 0.25,
-    },
-    "symmetrize_adjacency": True,
     "add_self_loops": False,
 }

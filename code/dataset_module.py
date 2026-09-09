@@ -11,46 +11,26 @@ def prepare_adjacency_for_hgcn(A, config):
     Pulisce e normalizza una matrice di adiacenza prima di passarla alla HGCN.
     """
     A = np.asarray(A, dtype=np.float32)
-    A = np.nan_to_num(A, nan=0.0, posinf=0.0, neginf=0.0)
+    A_s = np.asarray(A, dtype=np.float32)
+    A_s = np.nan_to_num(A_s, nan=0.0, posinf=0.0, neginf=0.0)
 
-    np.fill_diagonal(A, 0.0)
+    np.fill_diagonal(A_s, 0.0)
 
-    if config["symmetrize_adjacency"]:
-        A = 0.5 * (A + A.T)
+    A_s = 0.5 * (A_s + A_s.T)
 
-    max_value = float(A.max())
+    max_value = float(A_s.max())
     if max_value > 0:
+        A_s = A_s / max_value
         A = A / max_value
 
+
     if config["add_self_loops"]:
-        np.fill_diagonal(A, 1.0)
+        np.fill_diagonal(A_s, 1.0)
 
-    return A.astype(np.float32)
-
-
-def combine_adjacencies(adjacencies, weights):
-    A_combined = None
-    total_weight = 0.0
-
-    for method, weight in weights.items():
-        if method not in adjacencies:
-            continue
-
-        A = np.asarray(adjacencies[method], dtype=np.float32)
-        weight = float(weight)
-
-        if A_combined is None:
-            A_combined = weight * A
-        else:
-            A_combined += weight * A
-
-        total_weight += weight
-
-    if A_combined is None or total_weight == 0.0:
-        raise ValueError("No adjacency matrices available for combination")
-
-    return (A_combined / total_weight).astype(np.float32)
-
+    return {
+        "symmetric": A_s.astype(np.float32),
+        "normal": A.astype(np.float32),
+    }
 
 def build_subject_graph(
     subject_id,
@@ -58,7 +38,6 @@ def build_subject_graph(
     X,
     adjacencies,
     preprocessed_epochs,
-    stationarity_report,
     quality_report,
     fs,
     config,
@@ -66,16 +45,7 @@ def build_subject_graph(
     """
     Costruisce il dizionario finale del grafo associato a un soggetto.
     """
-    main_method = config["adjacency_method"]
-    if main_method == "combined":
-        adj = combine_adjacencies(
-            adjacencies,
-            config["adjacency_weights"],
-        )
-    else:
-        if main_method not in adjacencies:
-            raise ValueError(f"Missing main adjacency method: {main_method}")
-        adj = adjacencies[main_method]
+
 
     label = config["labels"][label_name]
     X = np.asarray(X, dtype=np.float32)
@@ -93,16 +63,17 @@ def build_subject_graph(
     return {
         "subject_id": subject_id,
         "x": X,
-        "adj": adj.astype(np.float32),
         "adjacencies": {
-            method: A.astype(np.float32)
-            for method, A in adjacencies.items()
+            method: {
+                matrix_type: matrix.astype(np.float32)
+                for matrix_type, matrix in matrices.items()
+            }
+            for method, matrices in adjacencies.items()
         },
         "label": label,
         "label_name": label_name,
         "channels": config["channel_order"],
         "metadata": metadata,
-        "stationarity_report": stationarity_report,
         "preprocessed_epochs": preprocessed_epochs,
     }
 
@@ -212,11 +183,17 @@ def save_hgcn_ready_dataset(graphs, config):
         subject_dir.mkdir(parents=True, exist_ok=True)
 
         np.save(subject_dir / "X.npy", graph["x"])
-        np.save(subject_dir / "A.npy", graph["adj"])
         np.save(subject_dir / "preprocessed_epochs.npy", graph["preprocessed_epochs"])
 
-        for method, A in graph["adjacencies"].items():
-            np.save(subject_dir / f"A_{method}.npy", A)
+        for method, matrices in graph["adjacencies"].items():
+            np.save(
+                subject_dir / f"A_{method}_symmetric.npy",
+                matrices["symmetric"],
+            )
+            np.save(
+                subject_dir / f"A_{method}_normal.npy",
+                matrices["normal"],
+            )
 
         with open(subject_dir / "y.json", "w", encoding="utf-8") as f:
             json.dump(
@@ -231,7 +208,5 @@ def save_hgcn_ready_dataset(graphs, config):
         with open(subject_dir / "metadata.json", "w", encoding="utf-8") as f:
             json.dump(_json_safe(graph["metadata"]), f, indent=2)
 
-        with open(subject_dir / "stationarity_report.json", "w", encoding="utf-8") as f:
-            json.dump(_json_safe(graph["stationarity_report"]), f, indent=2)
 
     return output_dir
