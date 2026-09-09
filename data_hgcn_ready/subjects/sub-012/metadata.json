@@ -1,0 +1,12 @@
+{
+  "fs": 100.0,
+  "target_fs": 100,
+  "n_epochs": 4,
+  "n_channels": 19,
+  "n_features": 8,
+  "quality_report": {
+    "total_epochs": 176,
+    "kept_epochs": 161,
+    "discarded_epochs": 15
+  }
+}
