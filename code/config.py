@@ -46,6 +46,12 @@ CONFIG = {
     "alpha": 0.05,
     "max_diffs": 2,
 
+    # Parametri VARLiNGAM: selezione dei lag tramite BIC e pruning.
+    # Escludiamo gli effetti istantanei B0 dall'adiacenza aggregata.
+    "varlingam_criterion": "bic",
+    "varlingam_prune": True,
+    "varlingam_include_instantaneous": False,
+
     # Metodi di causalita' da calcolare. Per smoke test rapidi si puo' ridurre
     # temporaneamente a ["granger"].
     "causality_methods": ["granger", "lingam", "pcmci"],
