@@ -45,30 +45,24 @@ def compute_granger_adjacency(processed_epochs, max_diff, alpha):
                     epoch[source]
                 ])
 
-                try:
-                    # results è un dict: key = lag, value = tuple con i risultati dei test
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", message="verbose is deprecated.*", category=FutureWarning)
-                        results = grangercausalitytests(pair_data, maxlag = max_diff, verbose = False)
-                    significant_lags = 0
+                
+                results = grangercausalitytests(pair_data, maxlag = max_diff)
+                significant_lags = 0
 
-                    # controlliamo la statistica F (ssr_ftest) per ogni lag
-                    for lag in range(1, max_diff + 1):
+                # controlliamo la statistica F (ssr_ftest) per ogni lag
+                for lag in range(1, max_diff + 1):
 
-                        # estraiamo il p-value del test F per questo lag
-                        # rappresenta la probabilità di osservare un miglioramento della predizione
-                        # aggiungendo `source` al modello di predizione di `target`
-                        p_value = results[lag][0]['ssr_ftest'][1]
-                        if p_value < alpha:
-                            significant_lags += 1
+                    # estraiamo il p-value del test F per questo lag
+                    # rappresenta la probabilità di osservare un miglioramento della predizione
+                    # aggiungendo `source` al modello di predizione di `target`
+                    p_value = results[lag][0]['ssr_ftest'][1]
+                    if p_value < alpha:
+                        significant_lags += 1
 
-                    # accumuliamo la frazione di lag significativi per questa epoca
-                    # A[target, source] rappresenta l'evidenza che `source` causa `target`
-                    A[target, source] += significant_lags / max_diff
-                except Exception:
-                    # se il test fallisce (es. epoca troppo corta) ignoriamo la coppia
-                    # e proseguiamo; questo evita che errori rompano l'intera pipeline
-                    continue
+                # accumuliamo la frazione di lag significativi per questa epoca
+                # A[target, source] rappresenta l'evidenza che `source` causa `target`
+                A[target, source] += significant_lags / max_diff
+
 
     # media across-epochs per ottenere una stima robusta
     if n_epochs > 0:
