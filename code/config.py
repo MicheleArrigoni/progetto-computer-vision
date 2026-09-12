@@ -1,71 +1,73 @@
+"""Central configuration for the EEG-to-HGCN dataset pipeline.
+
+Keeping paths, preprocessing parameters, causal-model settings, channel order,
+and class labels in one module ensures that every pipeline stage uses the same
+assumptions. Paths are represented by :class:`pathlib.Path` objects and are
+resolved relative to the repository, not the caller's working directory.
+"""
+
 from pathlib import Path
 
 
-# Root del repository.
-# `config.py` vive dentro la cartella `code`, quindi `parents[1]` risale alla
-# directory principale del progetto. Tutti i percorsi nel dizionario `CONFIG`
-# partono da qui, cosi' gli script funzionano indipendentemente dalla directory
-# da cui vengono lanciati.
+# ``config.py`` is inside ``code``; ``parents[1]`` is therefore the repository
+# root. Deriving all paths from it makes scripts independent of the current
+# working directory.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-# Configurazione generale della pipeline.
-# I parametri sono tenuti in un unico dizionario per poterli riutilizzare in
-# preprocessing, costruzione dei grafi e preparazione dei dati per il modello.
+# Shared settings used during preprocessing, causal-graph construction, and
+# final dataset serialization.
 CONFIG = {
-    # Percorsi principali: input BIDS/derivatives e output pronto per HGCN.
+    # Main BIDS input and HGCN-ready output locations.
     "project_root": PROJECT_ROOT,
     "dataset_dir": PROJECT_ROOT / "dataset",
     "derivatives_dir": PROJECT_ROOT / "dataset" / "derivatives",
-    "output_dir": PROJECT_ROOT / "data_hgcn_ready",
+    "output_dir": PROJECT_ROOT / "data_hgcn_ready"/ "openneuro",
 
-    # Frequenza di campionamento target dopo eventuale ricampionamento.
-    # Ridurre la frequenza aiuta a contenere costo computazionale e memoria.
+    # Target sampling frequency after resampling. Lower rates reduce memory and
+    # computation while retaining the configured frequency range.
     "target_fs": 100,
 
-    # Banda del filtro passa-banda EEG.
-    # Manteniamo le componenti tra 0.5 e 24 Hz, tipiche per analisi su ritmi EEG
-    # lenti/medi, rimuovendo drift molto lenti e componenti ad alta frequenza.
+    # EEG passband in hertz. It removes slow baseline drift and frequencies
+    # above the range used to calculate spectral node features.
     "low_freq": 0.5,
     "high_freq": 40.0,
 
-    # Frequenza del filtro notch per attenuare il rumore di rete elettrica.
-    # In Europa il disturbo principale e' tipicamente a 50 Hz.
+    # Power-line frequency suppressed by the notch filter (50 Hz in Europe).
     "notch_freq": 50.0,
 
-    # Segmentazione temporale: ogni epoca dura 5 secondi e, con overlap 0.0,
-    # le finestre non si sovrappongono.
+    # Fixed-length epoch settings. An overlap of zero means adjacent windows do
+    # not share samples.
     "epoch_length_sec": 5,
     "overlap": 0.0,
 
-    # Parametri per il test di causalita' di Granger.
-    # `maxlag` e' il massimo ritardo valutato; `alpha` e' la soglia di
-    # significativita'; `max_diffs` limita il numero di differenziazioni usate
-    # per rendere stazionarie le serie temporali.
+    # Shared causal-analysis settings. ``maxlag`` is measured in samples;
+    # ``alpha`` is the significance threshold; ``max_diffs`` limits the number
+    # of first differences used to obtain stationary time series.
     "maxlag": 4,
     "alpha": 0.05,
     "max_diffs": 2,
 
-    # Parametri VARLiNGAM: selezione dei lag tramite BIC e pruning.
-    # Escludiamo gli effetti istantanei B0 dall'adiacenza aggregata.
+    # VARLiNGAM model selection and pruning. Instantaneous B(0) effects are
+    # excluded from the aggregated graph by default.
     "varlingam_criterion": "bic",
     "varlingam_prune": True,
     "varlingam_include_instantaneous": False,
 
-    # Metodi di causalita' da calcolare. Per smoke test rapidi si puo' ridurre
-    # temporaneamente a ["granger"].
+    # Graph estimators executed for every subject. For a quick smoke test this
+    # can temporarily be reduced to ["granger"].
     "causality_methods": ["granger", "lingam", "pcmci"],
     "adjacency_method": "granger",
-    # Ordine canonico dei canali EEG usato per costruire matrici e grafi.
-    # Mantenere questo ordine fisso evita disallineamenti tra campioni diversi.
+    # Canonical node order. Keeping it fixed prevents graph rows and columns
+    # from referring to different channels across subjects.
     "channel_order": [
         "Fp1", "Fp2", "F3", "F4", "C3", "C4",
         "P3", "P4", "O1", "O2", "F7", "F8",
         "T3", "T4", "T5", "T6", "Fz", "Cz", "Pz",
     ],
 
-    # Codifica numerica delle classi cliniche.
-    # AD = Alzheimer Disease, CN = controllo sano, FTD = demenza frontotemporale.
+    # Clinical label encoding: Alzheimer's disease (AD), healthy control (CN),
+    # and frontotemporal dementia (FTD).
     "labels": {
         "AD": 1,
         "CN": 0,

@@ -1,3 +1,10 @@
+"""Assemble, split, and serialize graph samples for HGCN training.
+
+The functions in this module convert raw causal matrices into model-ready graph
+representations, attach subject metadata and labels, create subject-level data
+splits, and write both consolidated and per-subject artifacts to disk.
+"""
+
 import csv
 import json
 import pickle
@@ -7,8 +14,28 @@ import numpy as np
 
 
 def prepare_adjacency_for_hgcn(A, config):
-    """
-    Pulisce e normalizza una matrice di adiacenza prima di passarla alla HGCN.
+    """Clean and normalize a causal adjacency matrix for an HGCN.
+
+    Parameters
+    ----------
+    A:
+        Square directed adjacency matrix. Rows represent targets and columns
+        represent sources.
+    config:
+        Pipeline configuration. ``add_self_loops`` controls whether the
+        symmetric representation receives a unit diagonal.
+
+    Returns
+    -------
+    dict
+        Two ``float32`` matrices: ``normal`` retains edge direction, whereas
+        ``symmetric`` averages both directions. Both use the maximum value of
+        the cleaned symmetric matrix as a common normalization factor.
+
+    Notes
+    -----
+    NaN and infinite values are removed only from the symmetric copy, matching
+    the pipeline's existing behavior. Self-loops are added only to that copy.
     """
     A = np.asarray(A, dtype=np.float32)
     A_s = np.asarray(A, dtype=np.float32)
@@ -16,6 +43,8 @@ def prepare_adjacency_for_hgcn(A, config):
 
     np.fill_diagonal(A_s, 0.0)
 
+    # An undirected view is required by HGCN variants that assume symmetric
+    # message-passing neighborhoods.
     A_s = 0.5 * (A_s + A_s.T)
 
     max_value = float(A_s.max())
@@ -42,11 +71,33 @@ def build_subject_graph(
     fs,
     config,
 ):
-    """
-    Costruisce il dizionario finale del grafo associato a un soggetto.
-    """
+    """Build the complete graph sample for one subject.
 
+    Parameters
+    ----------
+    subject_id:
+        Unique BIDS-style subject identifier.
+    label_name:
+        Clinical class name; it must exist in ``config["labels"]``.
+    X:
+        Node-feature matrix with shape ``(n_channels, n_features)``.
+    adjacencies:
+        Mapping from causal method to its ``normal`` and ``symmetric`` matrix.
+    preprocessed_epochs:
+        EEG tensor with shape ``(n_epochs, n_channels, n_timepoints)``.
+    quality_report:
+        Per-subject preprocessing and rejection statistics.
+    fs:
+        Sampling frequency in hertz.
+    config:
+        Shared pipeline configuration.
 
+    Returns
+    -------
+    dict
+        Self-contained subject sample containing features, graph structures,
+        encoded label, channel order, metadata, and preprocessed epochs.
+    """
     label = config["labels"][label_name]
     X = np.asarray(X, dtype=np.float32)
     preprocessed_epochs = np.asarray(preprocessed_epochs, dtype=np.float32)
@@ -79,6 +130,7 @@ def build_subject_graph(
 
 
 def _json_safe(value):
+    """Recursively convert NumPy and pathlib values to JSON-compatible types."""
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, np.integer):
@@ -96,7 +148,27 @@ def _json_safe(value):
     return value
 
 
-def make_subject_splits(graphs, test_size=0.15, val_size=0.15, random_state=42):
+def make_subject_splits(graphs, test_size=0.10, val_size=0.20, random_state=42):
+    """Create reproducible train, validation, and test subject splits.
+
+    Stratified splitting is used when there are at least ten samples and two
+    classes. Smaller datasets use a deterministic fallback because stratified
+    splitting may be mathematically impossible with very small class counts.
+
+    Parameters
+    ----------
+    graphs:
+        Sequence of subject graph dictionaries.
+    test_size, val_size:
+        Fractions of the full dataset assigned to test and validation sets.
+    random_state:
+        Seed passed to scikit-learn for reproducible splits.
+
+    Returns
+    -------
+    dict
+        Subject-ID lists under the keys ``train``, ``val``, and ``test``.
+    """
     subject_ids = [graph["subject_id"] for graph in graphs]
     labels = [graph["label"] for graph in graphs]
 
@@ -134,8 +206,23 @@ def make_subject_splits(graphs, test_size=0.15, val_size=0.15, random_state=42):
 
 
 def save_hgcn_ready_dataset(graphs, config):
-    """
-    Salva su disco il dataset finale pronto per HGCN.
+    """Persist the complete HGCN-ready dataset and its metadata.
+
+    The output includes a consolidated ``graphs.pkl``, JSON configuration and
+    split files, a tabular summary, and a directory for each subject containing
+    features, epochs, adjacency variants, label, and metadata.
+
+    Parameters
+    ----------
+    graphs:
+        Iterable of graph dictionaries returned by :func:`build_subject_graph`.
+    config:
+        Pipeline configuration containing at least ``output_dir``.
+
+    Returns
+    -------
+    pathlib.Path
+        Directory to which the dataset was written.
     """
     output_dir = Path(config["output_dir"])
     subjects_dir = output_dir / "subjects"
