@@ -391,7 +391,8 @@ def main():
         patience=args.patience,
     )
 
-    output_path = Path("classifier_results.json")
+    output_path = Path("results") / "mlp" / "classifier_results.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(results, file, indent=2)
     print(f"\nResults saved to {output_path}")

@@ -137,7 +137,7 @@ def main():
         weight_decay=args.weight_decay,
     )
 
-    output_path = Path("logistic_results.json")
+    output_path = Path("results/logistic/logistic_results.json")
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(results, file, indent=2)
     print(f"\nResults saved to {output_path}")
