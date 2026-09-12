@@ -1,4 +1,12 @@
-﻿import os
+"""Preprocess EEG recordings and derive channel-level node features.
+
+This module loads EEGLAB recordings, enforces a canonical channel order,
+filters and epochs continuous signals, rejects low-quality windows, evaluates
+stationarity with complementary ADF and KPSS tests, and extracts spectral and
+summary-statistic features for graph nodes.
+"""
+
+import os
 import json
 import pickle
 from pathlib import Path
@@ -13,24 +21,32 @@ from config import CONFIG
 import openneuro as on
 
 def get_subject_label(subject_id: str):
-    '''
-    Restituisce la label clinica per un dato subject_id.
+    """Map a BIDS subject identifier to its clinical class.
 
-    Args:
-        subject_id (str): stringa identificativa del soggetto (es. 'sub-001').
+    The mapping is specific to OpenNeuro dataset ``ds004504``: subjects 001-036
+    are Alzheimer's disease (AD), 037-065 are healthy controls (CN), and
+    066-088 are frontotemporal dementia (FTD).
 
-    Returns:
-        str: una label tra 'AD', 'CN' o 'FTD'.
-    Raises:
-        ValueError: se l'ID non rientra nell'intervallo previsto.
-    '''
+    Parameters
+    ----------
+    subject_id:
+        Identifier ending in a three-digit subject number, such as ``sub-001``.
+
+    Returns
+    -------
+    str
+        One of ``"AD"``, ``"CN"``, or ``"FTD"``.
+
+    Raises
+    ------
+    ValueError
+        If the numeric suffix falls outside the dataset's known range.
+    """
 
     # uses only the last three digits of the subject ID to determine the label
     n = int(subject_id[-3:])
 
-    # in this particular dataset the first 36 patient are "AD"
-    # the patient from id = 37 to id = 65 are "CN"
-    # the others are "FDT"
+    # Class intervals are defined by the dataset's participant numbering.
 
     if 1 <= n <= 36:
         return "AD"
@@ -42,17 +58,12 @@ def get_subject_label(subject_id: str):
         raise ValueError(f"Invalid subject ID: {subject_id}")
 
 def get_subjects_list(data_dir: str):
-    '''
-    Ritorna la lista ordinata di directory soggetto presenti in `data_dir`.
+    """Return sorted BIDS subject directories found under ``data_dir``.
 
-    Args:
-        data_dir (str): percorso alla cartella del dataset.
-
-    Returns:
-        List[Path]: lista di oggetti `Path` per le cartelle che iniziano con 'sub-'.
-    '''
+    Only directories whose names start with ``sub-`` are included.
+    """
  
-    # to have access to path methods
+    # Normalize string-like inputs before directory discovery.
     dataset_dir = Path(data_dir)
 
     subjects = sorted([
@@ -63,69 +74,55 @@ def get_subjects_list(data_dir: str):
 
 
 
-# EEG RAW LOADING AND PREPROCESSING
+# RAW EEG LOADING AND PREPROCESSING
 
 def load_subject_raw(subject_dir):
-    '''
-    Carica il file EEGLAB (.set) presente nella sottocartella 'eeg' di `subject_dir` e
-    restituisce l'oggetto MNE Raw precaricato.
+    """Load a subject's only EEGLAB recording into memory.
 
-    Args:
-        subject_dir (Path): percorso alla cartella del soggetto (Path o stringa).
+    Parameters
+    ----------
+    subject_dir:
+        Path to a BIDS subject directory containing an ``eeg`` subdirectory.
 
-    Returns:
-        mne.io.Raw: oggetto Raw con `preload=True`.
+    Returns
+    -------
+    mne.io.BaseRaw
+        Preloaded MNE recording.
 
-    Raises:
-        RuntimeError: se non è presente esattamente un file .set nella sottocartella 'eeg'.
-    '''
+    Raises
+    ------
+    RuntimeError
+        If the EEG directory does not contain exactly one ``*_eeg.set`` file.
+    """
 
-    # Lista di file eeg .set nella sottocartella 'eeg' del  singolo soggetto
+    # A unique file is required to avoid silently choosing the wrong session.
     eeg_files = list((subject_dir/"eeg").glob("*_eeg.set"))
 
     if len(eeg_files) != 1:
         raise RuntimeError(f"error: expected one .set file \n, found: {len (eeg_files)}")
     
 
-    # Crea il file mne.io.Raw a partire dal file EEGLAB .set, con preload=True per caricare i dati in memoria
+    # Preloading is required because filtering and resampling modify all samples.
     raw = mne.io.read_raw_eeglab(
         eeg_files[0],
         preload = True,
         verbose = False
     )
 
-    # Il valore restituito `raw` è un oggetto MNE Raw (es. RawArray/RawEEGLAB) con le seguenti
-    # proprietà/metodi utili (elenco non esaustivo):
-    # - raw.info: dizionario con metadata (sfreq, ch_names, nchan, meas_date, description, ecc.)
-    # - raw.ch_names: lista dei nomi dei canali
-    # - raw.nchan / raw.info['nchan']: numero di canali
-    # - raw.times: array dei tempi per ciascun campione (in secondi)
-    # - raw.get_data(): restituisce i dati come array NumPy shape (n_channels, n_samples)
-    # - raw.copy(), raw.crop(tmin, tmax), raw.resample(new_sfreq): metodi per manipolare i dati
-    # - raw.annotations: oggetto con eventi/annotazioni temporali
-    # - raw.info['sfreq']: frequenza di campionamento
-    # - raw.load_data() / preload True: i dati sono precaricati in memoria se `preload=True`
-    # - raw.plot(), raw.plot_psd(): metodi di visualizzazione utili per ispezione
-    # - raw.pick_channels(list_of_names): selezione canali
-    # Tipico uso rapido: `data = raw.get_data(); ch_names = raw.ch_names; sfreq = raw.info['sfreq']`
-
     return raw
 
 def order_channels(raw, channel_order):
-    '''
-    Verifica la presenza dei canali richiesti in `raw` e restituisce una copia con i canali
-    ordinati secondo `channel_order`.
+    """Select required EEG channels in a stable graph-node order.
 
-    Args:
-        raw (mne.io.Raw): oggetto Raw da cui selezionare/ordinare i canali.
-        channel_order (List[str]): lista di nomi di canale nell'ordine desiderato.
+    The input recording is copied, so the caller's original object is not
+    modified. A stable order is essential because channel indices become graph
+    node indices in every saved sample.
 
-    Returns:
-        mne.io.Raw: copia di `raw` con canali ordinati.
-
-    Raises:
-        RuntimeError: se mancano canali richiesti.
-    '''
+    Raises
+    ------
+    RuntimeError
+        If one or more required channels are absent.
+    """
 
     missing = [ch for ch in channel_order if ch not in raw.ch_names]
 
@@ -138,15 +135,11 @@ def order_channels(raw, channel_order):
     return raw
 
 def filter_and_resample(raw):
-    '''
-    Applica filtro passa-banda e notch (se configurato) su una copia di `raw`.
+    """Band-pass, notch-filter, and resample a copy of an MNE recording.
 
-    Args:
-        raw (mne.io.Raw): oggetto Raw in ingresso.
-
-    Returns:
-        mne.io.Raw: copia filtrata di `raw`.
-    '''
+    Filter limits, line-noise frequency, and target sampling rate are read from
+    :data:`config.CONFIG`. The original recording is left unchanged.
+    """
     raw = raw.copy()
 
     raw.filter(
@@ -172,17 +165,24 @@ def filter_and_resample(raw):
     return raw
 
 def split_in_epochs(eeg, fs , epoch_lenght_sec):
-    '''
-    Suddivide una matrice EEG continua in epoche di lunghezza fissa.
+    """Split continuous EEG into fixed-length, non-overlapping epochs.
 
-    Args:
-        eeg (np.ndarray): array shape (n_channels, n_samples).
-        fs (float): frequenza di campionamento in Hz.
-        epoch_lenght_sec (float): durata di ciascuna epoca in secondi.
+    Parameters
+    ----------
+    eeg:
+        Continuous signal with shape ``(n_channels, n_samples)``.
+    fs:
+        Sampling frequency in hertz.
+    epoch_lenght_sec:
+        Epoch duration in seconds. The misspelled name is retained for API
+        compatibility.
 
-    Returns:
-        np.ndarray: array shape (n_epochs, n_channels, samples_per_epoch).
-    '''
+    Returns
+    -------
+    numpy.ndarray
+        Tensor with shape ``(n_epochs, n_channels, samples_per_epoch)``.
+        Trailing samples that do not fill a complete epoch are discarded.
+    """
     samples_per_epoch = int (fs*epoch_lenght_sec)
     n_channels, n_samples = eeg.shape
     n_epochs = n_samples // samples_per_epoch
@@ -193,27 +193,25 @@ def split_in_epochs(eeg, fs , epoch_lenght_sec):
         start = i * samples_per_epoch
         end = (i+1) * samples_per_epoch
 
-        # selects all rows (the cahnnels) from column start to end
+        # Select every channel over the current time window.
         epochs.append(eeg[:, start:end])
 
-    # if there are remaining samples that do not fit into a full epoch, we can discard them or handle them as needed
-    # shape of the output will be (n_epochs, n_channels, samples_per_epoch)
+    # Stacking introduces the leading epoch dimension.
     return np.stack(epochs)
 
 def make_epoch_stationary(epoch, channels, max_diffs):
-    '''
-    Applica differenziazioni progressive per rendere stazionaria l'epoca (per canale), valutando
-    ADF e KPSS ad ogni passo.
+    """Apply first differences until every channel passes ADF and KPSS.
 
-    Args:
-        epoch (np.ndarray): epoca shape (n_channels, samples_per_epoch).
-        channels (List[str]): lista dei nomi dei canali corrispondenti agli indici di `epoch`.
-        max_diffs (int): numero massimo di differenziazioni consentite.
+    A channel is accepted only when ADF rejects a unit root and KPSS does not
+    reject level stationarity. Since differencing shortens the time axis by one
+    sample, callers later crop all accepted epochs to a common length.
 
-    Returns:
-        Tuple[np.ndarray, dict]: (epoca trasformata, report sulla stazionarietà contenente per-canale
-        i risultati dei test e il numero di differenze applicate).
-    '''
+    Returns
+    -------
+    tuple
+        ``(transformed_epoch, report)``. The report records each test result at
+        every differencing depth and whether differencing was applied.
+    """
     # epoch shape: (n_channels, samples_per_epoch)
     current = epoch.copy()
     report = {
@@ -250,23 +248,28 @@ def make_epoch_stationary(epoch, channels, max_diffs):
     return current, report
 
 def passes_adf_test(x: np.ndarray, alpha: float = 0.05, maxlag: int = 4) -> bool:
-    """
-    Ritorna True se il segnale supera il test ADF (quindi indica STAZIONARIETÀ).
-    Ipotesi nulla (H0): Serie NON stazionaria (ha una radice unitaria).
-    Se p-value <= alpha, rifiutiamo H0 -> La serie è stazionaria.
+    """Return whether a series passes the Augmented Dickey-Fuller test.
+
+    The ADF null hypothesis is the presence of a unit root. A p-value no larger
+    than ``alpha`` is therefore interpreted as evidence of stationarity.
+    Numerical or statistical failures conservatively return ``False``.
     """
     try:
-        # Calcoliamo il test di Dickey-Fuller aumentato
+        # The p-value is the second item in statsmodels' tuple result.
         result = adfuller(x, maxlag=maxlag, result_object=False)
-        p_value = result[1]  # Il p-value è il secondo elemento restituito
+        p_value = result[1]
         
-        # Supera il test se il p-value è inferiore o uguale alla soglia alpha
         return p_value <= alpha
     except Exception:
-        # In caso di errori di convergenza numerica, restituisce False per sicurezza
         return False
 
 def passes_kpss_test(x: np.ndarray, alpha: float = 0.05, result_object: bool = False) -> bool:
+    """Return whether a series passes the KPSS stationarity test.
+
+    KPSS uses stationarity as its null hypothesis, so a p-value greater than
+    ``alpha`` is treated as a pass. Interpolation warnings occur when the true
+    p-value lies outside the lookup table and are intentionally suppressed.
+    """
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", InterpolationWarning)
@@ -278,16 +281,11 @@ def passes_kpss_test(x: np.ndarray, alpha: float = 0.05, result_object: bool = F
         return False
 
 def is_good_epoch(epoch, amp_treshold = 150e-6):
-    '''
-    Controlla la qualità di una epoca: valori finiti, ampiezza sotto soglia e varianza non nulla.
+    """Check an epoch for finite values, extreme amplitudes, and flat channels.
 
-    Args:
-        epoch (np.ndarray): epoca shape (n_channels, samples_per_epoch).
-        amp_treshold (float): soglia massima per l'ampiezza assoluta dei segnali.
-
-    Returns:
-        bool: True se l'epoca è considerata buona, False altrimenti.
-    '''
+    ``amp_treshold`` is expressed in the same unit as the MNE data (normally
+    volts). Its historical spelling is retained to avoid breaking callers.
+    """
     if not np.isfinite(epoch).all():
         return False
 
@@ -301,46 +299,39 @@ def is_good_epoch(epoch, amp_treshold = 150e-6):
     return True
 
 def zscore_epoch(epoch, eps=1e-8):
+    """Standardize every channel independently within one epoch.
+
+    Parameters
+    ----------
+    epoch:
+        Array with shape ``(n_channels, samples_per_epoch)``.
+    eps:
+        Small denominator offset protecting against division by zero.
     """
-    Esegue la normalizzazione Z-score (standardizzazione) a livello di singolo canale per un'epoca.
-    Rappresenta di quanto un valore si discosta dalla media del canale in termini di deviazioni standard.
-    
-    Args:
-        epoch (np.ndarray): Dati della singola epoca. Shape: (n_channels, samples_per_epoch)
-        eps (float): Piccolo valore (epsilon) per evitare la divisione per zero in canali piatti.
-        
-    Returns:
-        np.ndarray: L'epoca normalizzata. Shape: (n_channels, samples_per_epoch)
-    """
-    mean = epoch.mean(axis=1, keepdims=True)  # Calcola media per canale. Shape: (n_channels, 1)
-    std = epoch.std(axis=1, keepdims=True)    # Calcola deviazione standard per canale. Shape: (n_channels, 1)
+    mean = epoch.mean(axis=1, keepdims=True)
+    std = epoch.std(axis=1, keepdims=True)
     return (epoch - mean) / (std + eps)
 
 def crop_to_same_lenght(epochs):
-    '''
-    Esegue il crop di tutte le epoche alla lunghezza minima trovata tra di esse.
+    """Crop epochs to their shortest time axis and stack them.
 
-    Args:
-        epochs (List[np.ndarray]): lista di epoche shape (n_channels, samples_i).
-
-    Returns:
-        np.ndarray: array shape (n_epochs, n_channels, min_samples).
-    '''
+    Differencing may leave otherwise valid epochs with different sample counts.
+    The historical function-name spelling is retained for API compatibility.
+    """
     min_len = min(epoch.shape[1] for epoch in epochs)
     return np.stack([epoch[:, :min_len] for epoch in epochs])
 
 def preprocess_epochs_for_subject(epochs):
-    '''
-    Applica controlli di qualità, normalizzazione e prova a rendere stazionarie le epoche
-    restituendo il tensore preprocessato e report.
+    """Quality-control, standardize, and stationarize one subject's epochs.
 
-    Args:
-        epochs (np.ndarray or List[np.ndarray]): lista o array di epoche raw.
-
-    Returns:
-        Tuple[np.ndarray or None, list, dict]: (preprocessed_epochs o None se nessuna valida,
-        raw_good_epochs, quality_report).
-    '''
+    Returns
+    -------
+    tuple
+        ``(processed_epochs, raw_good_epochs, quality_report)``. The first item
+        is ``None`` if every epoch fails quality control. ``raw_good_epochs``
+        contains standardized data before differencing and is used for spectral
+        features; ``processed_epochs`` is used for causal estimation.
+    """
     good_epochs = []
     raw_good_epochs = []
     stationarity_report = []
@@ -371,7 +362,7 @@ def preprocess_epochs_for_subject(epochs):
         good_epochs.append(epoch_stat)
 
         quality_report["kept_epochs"] += 1
-    # after evaluating all epochs, check how many good epochs we collected
+    # Causal estimation cannot proceed when quality control rejects all epochs.
     if len(good_epochs) == 0:
         return None,[], quality_report
 
@@ -379,18 +370,26 @@ def preprocess_epochs_for_subject(epochs):
     return processed_epochs, raw_good_epochs,  quality_report
 
 def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
-    """
-    Calcola la mean bandpower per canale in modo semplice.
+    """Estimate mean spectral power for one channel across multiple epochs.
 
-    Args:
-        ch_epochs (np.ndarray): shape (n_epochs, n_samples) per un singolo canale.
-        fs (float): sampling frequency in Hz.
-        band (tuple): (fmin, fmax) della banda.
-        relative (bool): se True restituisce bandpower relativa (bandpower/total_power).
-        nperseg (int|None): parametro per welch (default min(256, n_samples)).
+    Welch's method estimates the power spectral density of each epoch. Power is
+    integrated over the inclusive ``(fmin, fmax)`` interval and then averaged
+    across epochs. If ``relative`` is true, each band integral is divided by
+    that epoch's total spectral power before averaging.
 
-    Returns:
-        float: valore medio della bandpower across-epochs (o frazione media se relative=True).
+    Parameters
+    ----------
+    ch_epochs:
+        Single-channel data with shape ``(n_epochs, n_samples)``.
+    fs:
+        Sampling frequency in hertz.
+    band:
+        Inclusive lower and upper frequency limits in hertz.
+    relative:
+        Return a fraction of total power instead of absolute power.
+    nperseg:
+        Welch segment length; defaults to the smaller of 256 and the epoch
+        length.
     """
     fmin, fmax = band
     nperseg = nperseg or min(256, ch_epochs.shape[1])
@@ -410,28 +409,25 @@ def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
     return float(np.mean(frac_list if relative else bp_list)) if (relative and frac_list) or (not relative and bp_list) else 0.0
 
 def build_node_features(preprocessed_epochs, fs):
-    '''
-    Costruisce il vettore di feature per ciascun canale a partire dalle epoche preprocessate.
+    """Build an eight-dimensional feature vector for every EEG channel.
 
-    Features calcolate per canale (aggregazione across-epochs via media):
-      - bandpower delta (0.5-4 Hz)
-      - bandpower theta (4-8 Hz)
-      - bandpower alpha (8-13 Hz)
-      - bandpower beta  (13-24 Hz)
-      - bandpower gamma (24-40 Hz) 
-      - mean (valore medio del segnale)
-      - std (deviazione standard)
-      - var (varianza)
-      - stationarity_fraction (frazione di epoche che hanno richiesto differenziazione)
+    Features are absolute delta, theta, alpha, beta, and gamma bandpower,
+    followed by the mean, standard deviation, and variance over all accepted
+    samples. Spectral power is averaged across epochs.
 
-    Args:
-        preprocessed_epochs (np.ndarray): array shape (n_epochs, n_channels, n_samples).
-        fs (float): frequenza di campionamento in Hz.
-        stationarity_report (list): report generato da `make_epoch_stationary` per ogni epoca.
+    Parameters
+    ----------
+    preprocessed_epochs:
+        EEG tensor with shape ``(n_epochs, n_channels, n_samples)``. In the main
+        pipeline this is the standardized, pre-differencing representation.
+    fs:
+        Sampling frequency in hertz.
 
-    Returns:
-        np.ndarray: matrice delle feature nodali shape (n_channels, 8), dtype float32.
-    '''
+    Returns
+    -------
+    numpy.ndarray
+        ``float32`` feature matrix with shape ``(n_channels, 8)``.
+    """
     _, n_channels, _ = preprocessed_epochs.shape
     features = []
 
