@@ -21,8 +21,16 @@ CONFIG = {
     # Main BIDS input and HGCN-ready output locations.
     "project_root": PROJECT_ROOT,
     "dataset_dir": PROJECT_ROOT / "dataset",
-    "derivatives_dir": PROJECT_ROOT / "dataset" / "derivatives",
+    "derivatives_dir": PROJECT_ROOT / "dataset" / "openneuro_derivatives",
     "output_dir": PROJECT_ROOT / "data_hgcn_ready"/ "openneuro",
+
+    # Subjects excluded before computing the shared minimum epoch count.
+    # Exclusions are dataset-specific because the same numeric subject id can
+    # exist in both OpenNeuro and BrainLat.
+    "excluded_subjects": {
+        "openneuro": ["sub-086"],
+        "brainlat": ["sub-078"],
+    },
 
     # Target sampling frequency after resampling. Lower rates reduce memory and
     # computation while retaining the configured frequency range.

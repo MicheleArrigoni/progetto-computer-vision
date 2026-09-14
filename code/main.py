@@ -72,6 +72,14 @@ def compute_graphs(processed_epochs: np.ndarray) -> dict[str, np.ndarray]:
     return graphs
 
 
+def get_dataset_key(derivatives_dir) -> str:
+    """Infer which configured dataset is being processed from its path."""
+    name = derivatives_dir.name.lower()
+    if "brainlat" in name:
+        return "brainlat"
+    return "openneuro"
+
+
 def main() -> None:
     """Preprocess all subjects and save their HGCN graph samples.
 
@@ -79,7 +87,16 @@ def main() -> None:
     EEG recordings. After the minimum valid epoch count is known, the second
     pass crops every subject consistently and computes features and graphs.
     """
-    subjects = sorted(CONFIG["derivatives_dir"].glob("sub-*"))
+    dataset_key = get_dataset_key(CONFIG["derivatives_dir"])
+    excluded_config = CONFIG.get("excluded_subjects", {})
+    excluded_subjects = set(excluded_config.get(dataset_key, []))
+    subjects = [
+        subject_dir
+        for subject_dir in sorted(CONFIG["derivatives_dir"].glob("sub-*"))
+        if subject_dir.name not in excluded_subjects
+    ]
+    if excluded_subjects:
+        print(f"Excluded {dataset_key} subjects: {sorted(excluded_subjects)}")
     print(f"Starting preprocessing for {len(subjects)} subjects...")
 
     processed_subjects = []
