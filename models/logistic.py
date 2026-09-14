@@ -53,11 +53,11 @@ def train_and_evaluate(
     *,
     train_dataset_dirs=None,
     test_dataset_dirs=None,
-    seed=42,
+    seed=32,
     epochs=500,
     patience=50,
     lr=1e-2,
-    weight_decay=1e-3,
+    weight_decay=1e-4,
 ):
     """Train one logistic-regression model per causal method."""
     external_test = train_dataset_dirs is not None or test_dataset_dirs is not None

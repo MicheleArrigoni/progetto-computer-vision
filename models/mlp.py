@@ -15,14 +15,14 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_ROOT = PROJECT_ROOT / "data_hgcn_ready"
 DEFAULT_DATASET_DIRS = (
-    DEFAULT_DATASET_ROOT / "openneuro",
+    #DEFAULT_DATASET_ROOT / "openneuro",
     DEFAULT_DATASET_ROOT / "brainlat",
 )
 METHODS = ("granger", "lingam", "pcmci")
 CLASS_NAMES = ("CN", "AD", "FTD")
 N_CHANNELS = 19
 N_NODE_FEATURES = 8
-DEFAULT_HIDDEN_SIZE = 64
+DEFAULT_HIDDEN_SIZE = 16
 
 
 def dataset_dirs_or_default(paths=None) -> list[Path]:
@@ -187,11 +187,11 @@ def train_model(
     train_data,
     val_data,
     *,
-    class_weights=None,
-    epochs=1000,
-    patience=500,
+    class_weights="balanced",
+    epochs=500,
+    patience=50,
     lr=1e-3,
-    weight_decay=1e-4,
+    weight_decay=1e-3,
 ):
     """Train a model with validation-loss early stopping."""
     train_x, train_y = train_data
@@ -296,8 +296,8 @@ def train_and_evaluate(
     train_dataset_dirs=None,
     test_dataset_dirs=None,
     seed=42,
-    epochs=1000,
-    patience=500,
+    epochs=500,
+    patience=50,
 ):
     """Train one MLP per causal method."""
     external_test = train_dataset_dirs is not None or test_dataset_dirs is not None
@@ -374,8 +374,8 @@ def parse_args():
     parser.add_argument("--train-dataset-dir", action="append", type=Path)
     parser.add_argument("--test-dataset-dir", action="append", type=Path)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--epochs", type=int, default=1000)
-    parser.add_argument("--patience", type=int, default=500)
+    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--patience", type=int, default=50)
     return parser.parse_args()
 
 
