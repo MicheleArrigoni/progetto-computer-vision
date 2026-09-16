@@ -1,3 +1,11 @@
+"""Download the BrainLat dataset from Synapse into a local project folder.
+
+This script is a one-off data acquisition helper. It authenticates with
+Synapse, recursively synchronizes the configured entity into
+``./brainlat_dataset``, and prints actionable messages for common access
+errors such as missing terms-of-use acceptance.
+"""
+
 import os
 import getpass
 import synapseclient
@@ -5,6 +13,7 @@ import synapseutils
 from synapseclient.core.exceptions import SynapseHTTPError
 
 def main():
+    """Authenticate with Synapse and synchronize the configured dataset."""
     # 1. Configurazione: Sostituisci questo con l'ID REALE del dataset su Synapse
     # Esempio: se l'url è https://www.synapse.org/#!Synapse:syn12345678, l'ID è "syn12345678"
     DATASET_SYN_ID = "syn51549340"

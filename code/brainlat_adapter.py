@@ -33,6 +33,7 @@ ID_SLOTS = {
 
 
 def main() -> None:
+    """Parse command-line options and run the BrainLat conversion workflow."""
     parser = argparse.ArgumentParser(description="Convert BrainLat EEG for the pipeline.")
     parser.add_argument(
         "--brainlat-root",
@@ -160,6 +161,13 @@ def load_and_adapt_raw(eeg_path: Path):
 
 
 def map_brainlat_channels_to_1020(raw) -> dict[str, str]:
+    """Match each required 10-20 channel to the nearest BrainLat electrode.
+
+    BrainLat channel names may not directly match the 19-channel order used by
+    the rest of the project. The raw channel coordinates are compared with the
+    standard 10-20 montage after normalizing both coordinate vectors, and each
+    source channel is assigned at most once.
+    """
     standard = mne.channels.make_standard_montage("standard_1020")
     positions = standard.get_positions()["ch_pos"]
     used = set()
@@ -186,6 +194,7 @@ def map_brainlat_channels_to_1020(raw) -> dict[str, str]:
 
 
 def print_counts(subjects: list[dict]) -> None:
+    """Print a compact class-count summary for discovered BrainLat subjects."""
     counts = {}
     for subject in subjects:
         counts[subject["label"]] = counts.get(subject["label"], 0) + 1
@@ -193,6 +202,7 @@ def print_counts(subjects: list[dict]) -> None:
 
 
 def row_value(row: dict[str, str], *names: str) -> str:
+    """Return a CSV row value while tolerating case, spaces, and underscores."""
     normalized = {
         key.lower().replace("_", "").replace(" ", ""): value
         for key, value in row.items()
@@ -206,6 +216,7 @@ def row_value(row: dict[str, str], *names: str) -> str:
 
 
 def normalize_label(label: str) -> str:
+    """Map BrainLat diagnosis aliases to the pipeline's class labels."""
     label = label.strip()
     if label in {"HC", "Control", "CONTROL"}:
         return "CN"
@@ -215,15 +226,18 @@ def normalize_label(label: str) -> str:
 
 
 def label_from_path(eeg_root: Path, eeg_path: Path) -> str:
+    """Infer a clinical label from the first folder below the EEG root."""
     folder = eeg_path.relative_to(eeg_root).parts[0]
     return normalize_label(folder.split("_", 1)[1] if "_" in folder else folder)
 
 
 def subject_dir_from_eeg_path(eeg_path: Path) -> Path:
+    """Return the subject directory for both BIDS-like and flat EEG paths."""
     return eeg_path.parent.parent if eeg_path.parent.name == "eeg" else eeg_path.parent
 
 
 def unit_vector(vector) -> np.ndarray | None:
+    """Normalize an electrode coordinate vector, or return None if invalid."""
     vector = np.asarray(vector, dtype=float)
     norm = float(np.linalg.norm(vector))
     if norm == 0.0 or not np.isfinite(norm):

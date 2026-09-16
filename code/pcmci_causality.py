@@ -111,7 +111,7 @@ def _compute_pcmci_epoch(
 def compute_pcmci_adjacency(
     preprocessed_epochs: np.ndarray,
     tau_max: int = 1,
-    alpha_level: float = 0.01,
+    alpha_level: float = 0.05,
 ) -> np.ndarray:
     """Aggregate PCMCI adjacency matrices over a subject's EEG epochs.
 

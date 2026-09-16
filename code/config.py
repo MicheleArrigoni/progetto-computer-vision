@@ -9,7 +9,7 @@ resolved relative to the repository, not the caller's working directory.
 from pathlib import Path
 
 
-# ``config.py`` is inside ``code``; ``parents[1]`` is therefore the repository
+# config.py is inside code; parents[1] is therefore the repository
 # root. Deriving all paths from it makes scripts independent of the current
 # working directory.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # Shared settings used during preprocessing, causal-graph construction, and
 # final dataset serialization.
 CONFIG = {
-    # Main BIDS input and HGCN-ready output locations.
+    # Main input and output locations.
     "project_root": PROJECT_ROOT,
     "dataset_dir": PROJECT_ROOT / "dataset",
     "derivatives_dir": PROJECT_ROOT / "dataset" / "openneuro_derivatives",
@@ -27,9 +27,10 @@ CONFIG = {
     # Subjects excluded before computing the shared minimum epoch count.
     # Exclusions are dataset-specific because the same numeric subject id can
     # exist in both OpenNeuro and BrainLat.
+    
     "excluded_subjects": {
-        "openneuro": ["sub-086"],
-        "brainlat": ["sub-078"],
+            "openneuro": ["sub-086"],
+            "brainlat": ["sub-078"],
     },
 
     # Target sampling frequency after resampling. Lower rates reduce memory and
@@ -49,11 +50,11 @@ CONFIG = {
     "epoch_length_sec": 5,
     "overlap": 0.0,
 
-    # Shared causal-analysis settings. ``maxlag`` is measured in samples;
-    # ``alpha`` is the significance threshold; ``max_diffs`` limits the number
+    # Shared causal-analysis settings. maxlag is measured in samples;
+    # alpha is the significance threshold; max_diffs limits the number
     # of first differences used to obtain stationary time series.
     "maxlag": 4,
-    "alpha": 0.05,
+    "alpha": 0.01,
     "max_diffs": 2,
 
     # VARLiNGAM model selection and pruning. Instantaneous B(0) effects are

@@ -68,6 +68,7 @@ def build_subject_graph(
     adjacencies,
     preprocessed_epochs,
     quality_report,
+    stationarity_report,
     fs,
     config,
 ):
@@ -87,6 +88,8 @@ def build_subject_graph(
         EEG tensor with shape ``(n_epochs, n_channels, n_timepoints)``.
     quality_report:
         Per-subject preprocessing and rejection statistics.
+    stationarity_report:
+        Per-subject stationarity statistics.
     fs:
         Sampling frequency in hertz.
     config:
@@ -109,6 +112,7 @@ def build_subject_graph(
         "n_channels": int(X.shape[0]),
         "n_features": int(X.shape[1]),
         "quality_report": quality_report,
+        "stationarity_report": stationarity_report,
     }
 
     return {
@@ -125,6 +129,7 @@ def build_subject_graph(
         "label_name": label_name,
         "channels": config["channel_order"],
         "metadata": metadata,
+        "stationarity_report": stationarity_report,
         "preprocessed_epochs": preprocessed_epochs,
     }
 
