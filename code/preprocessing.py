@@ -6,19 +6,17 @@ stationarity with complementary ADF and KPSS tests, and extracts spectral and
 summary-statistic features for graph nodes.
 """
 
-import os
-import json
-import pickle
+
 from pathlib import Path
 import numpy as np
+import mne
 from scipy.signal import welch
-from statsmodels.tsa.stattools import grangercausalitytests, adfuller, kpss
+from statsmodels.tsa.stattools import adfuller, kpss
 from statsmodels.tools.sm_exceptions import InterpolationWarning
 import warnings
 
-import mne
+
 from config import CONFIG
-import openneuro as on
 
 def get_subject_label(subject_id: str):
     """Map a BIDS subject identifier to its clinical class.
@@ -56,23 +54,6 @@ def get_subject_label(subject_id: str):
         return "FTD"
     else:
         raise ValueError(f"Invalid subject ID: {subject_id}")
-
-def get_subjects_list(data_dir: str):
-    """Return sorted BIDS subject directories found under ``data_dir``.
-
-    Only directories whose names start with ``sub-`` are included.
-    """
- 
-    # Normalize string-like inputs before directory discovery.
-    dataset_dir = Path(data_dir)
-
-    subjects = sorted([
-        p for p in dataset_dir.iterdir()
-        if p.is_dir() and p.name.startswith("sub-")
-    ])
-    return subjects
-
-
 
 # RAW EEG LOADING AND PREPROCESSING
 
@@ -123,9 +104,7 @@ def order_channels(raw, channel_order):
     RuntimeError
         If one or more required channels are absent.
     """
-
     missing = [ch for ch in channel_order if ch not in raw.ch_names]
-
     if missing:
         raise RuntimeError(f"{missing} channels are missing, subject{raw.getName()}")
 
@@ -234,7 +213,7 @@ def make_epoch_stationary(epoch, channels, max_diffs):
                 "kpss_ok": kpss_ok
             })
 
-            if not (adf_ok and kpss_ok):
+            if not (adf_ok or kpss_ok):
                 non_stationary.append(ch)
         
         if len (non_stationary) == 0:
@@ -318,6 +297,7 @@ def crop_to_same_lenght(epochs):
     Differencing may leave otherwise valid epochs with different sample counts.
     The historical function-name spelling is retained for API compatibility.
     """
+
     min_len = min(epoch.shape[1] for epoch in epochs)
     return np.stack([epoch[:, :min_len] for epoch in epochs])
 
@@ -358,16 +338,19 @@ def preprocess_epochs_for_subject(epochs):
             max_diffs = CONFIG["max_diffs"]
         )
 
+        
 
         good_epochs.append(epoch_stat)
 
+        stationarity_report.append(report)
         quality_report["kept_epochs"] += 1
+
     # Causal estimation cannot proceed when quality control rejects all epochs.
     if len(good_epochs) == 0:
-        return None,[], quality_report
+        return None, [], quality_report, stationarity_report
 
     processed_epochs = crop_to_same_lenght(good_epochs)
-    return processed_epochs, raw_good_epochs,  quality_report
+    return processed_epochs, raw_good_epochs,  quality_report, stationarity_report
 
 def mean_bandpower_epochs(ch_epochs, fs, band, relative=False, nperseg=None):
     """Estimate mean spectral power for one channel across multiple epochs.

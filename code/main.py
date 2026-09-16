@@ -71,14 +71,12 @@ def compute_graphs(processed_epochs: np.ndarray) -> dict[str, np.ndarray]:
 
     return graphs
 
-
 def get_dataset_key(derivatives_dir) -> str:
     """Infer which configured dataset is being processed from its path."""
     name = derivatives_dir.name.lower()
     if "brainlat" in name:
         return "brainlat"
     return "openneuro"
-
 
 def main() -> None:
     """Preprocess all subjects and save their HGCN graph samples.
@@ -118,9 +116,7 @@ def main() -> None:
             eeg = raw.get_data()
             fs = float(raw.info["sfreq"])
             epochs = split_in_epochs(eeg, fs, CONFIG["epoch_length_sec"])
-            processed_epochs, raw_good_epochs, quality_report = (
-                preprocess_epochs_for_subject(epochs)
-            )
+            processed_epochs, raw_good_epochs, quality_report, stationarity_report = ( preprocess_epochs_for_subject(epochs))
 
             if processed_epochs is None:
                 print(f"  {subject_id}: no valid epochs, skipping")
@@ -139,6 +135,7 @@ def main() -> None:
                 "processed_epochs": processed_epochs,
                 "raw_good_epochs": raw_good_epochs,
                 "quality_report": quality_report,
+                "stationarity_report": stationarity_report,
             })
 
         except Exception as e:
@@ -191,6 +188,7 @@ def main() -> None:
                 adjacencies=adjacencies,
                 preprocessed_epochs=processed_epochs,
                 quality_report=subject["quality_report"],
+                stationarity_report=subject["stationarity_report"],
                 fs=subject["fs"],
                 config=CONFIG,
             )
