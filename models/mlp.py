@@ -15,18 +15,20 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_ROOT = PROJECT_ROOT / "data_hgcn_ready"
 DEFAULT_DATASET_DIRS = (
-    #DEFAULT_DATASET_ROOT / "openneuro",
-    DEFAULT_DATASET_ROOT / "brainlat",
+    DEFAULT_DATASET_ROOT / "openneuro",
+    #DEFAULT_DATASET_ROOT / "brainlat",
 )
 METHODS = ("granger", "lingam", "pcmci")
 CLASS_NAMES = ("CN", "AD", "FTD")
 N_CHANNELS = 19
 N_NODE_FEATURES = 8
-DEFAULT_HIDDEN_SIZE = 16
+DEFAULT_HIDDEN_SIZE = 32
 
 
 def dataset_dirs_or_default(paths=None) -> list[Path]:
     """Return explicit dataset paths, or the two default processed datasets."""
+    # CLI arguments arrive as None, one Path, or a list of Paths. Normalize all
+    # cases to a list so the loader can use one simple loop.
     if paths is None:
         paths = DEFAULT_DATASET_DIRS
     if isinstance(paths, (str, Path)):
@@ -46,6 +48,8 @@ def load_samples(
     labels = []
     subject_ids = []
 
+    # Each processed dataset contains one folder per subject. Every subject
+    # contributes one flattened feature vector and one class label.
     for dataset_dir in dataset_dirs_or_default(dataset_dirs):
         subjects_dir = dataset_dir / "subjects"
         if not subjects_dir.exists():
@@ -54,6 +58,8 @@ def load_samples(
 
         for subject_dir in sorted(subjects_dir.glob("sub-*")):
             sample_id = f"{dataset_dir.name}:{subject_dir.name}"
+            # X stores per-channel node features. A_<method>_normal stores the
+            # directed connectivity matrix produced by one causal estimator.
             features = np.load(subject_dir / "X.npy").astype(np.float32)
             adjacency = np.load(subject_dir / f"A_{method}_normal.npy").astype(np.float32)
 
@@ -61,6 +67,8 @@ def load_samples(
                 label = json.load(file)["label"]
 
             validate_sample(sample_id, features, adjacency, label)
+            # The diagonal contains self-connections, which are not useful as
+            # classifier inputs here. Keep only off-diagonal directed edges.
             directed_edges = adjacency[~np.eye(N_CHANNELS, dtype=bool)]
             samples.append(np.concatenate((features.ravel(), directed_edges)))
             labels.append(label)
@@ -89,31 +97,34 @@ def validate_sample(sample_id, features, adjacency, label) -> None:
     if type(label) is not int or label not in range(len(CLASS_NAMES)):
         raise ValueError(f"{sample_id}: expected integer label 0..2")
 
-
-def stratified_train_val_test(labels, seed=42, fractions=(0.70, 0.10, 0.20)):
+def stratified_train_val_test(labels, seed=35, fractions=(0.70, 0.1, 0.2)):
     """Return stratified train/validation/test indices."""
     rng = np.random.default_rng(seed)
     labels = np.asarray(labels)
     split_indices = [[], [], []]
 
+    # Split each clinical class independently, then merge the class-specific
+    # indices. This keeps train/validation/test class proportions similar.
     for label in np.unique(labels):
         class_indices = np.flatnonzero(labels == label)
         rng.shuffle(class_indices)
         counts = class_split_counts(len(class_indices), fractions)
 
+        # Assign the first chunk to train, the second to validation, and the
+        # third to test after the class-specific shuffle.
         start = 0
         for split_id, count in enumerate(counts):
             split_indices[split_id].extend(class_indices[start:start + count])
             start += count
 
+    # Shuffle again so each returned split does not stay grouped by class.
     result = []
     for indices in split_indices:
         rng.shuffle(indices)
         result.append(np.asarray(indices, dtype=np.int64))
     return result
 
-
-def stratified_train_val(labels, seed=42, validation_fraction=0.15):
+def stratified_train_val(labels, seed=35, validation_fraction=0.15):
     """Return stratified train/validation indices for external-test mode."""
     train, val, _ = stratified_train_val_test(
         labels,
@@ -125,6 +136,8 @@ def stratified_train_val(labels, seed=42, validation_fraction=0.15):
 
 def class_split_counts(n_items, fractions):
     """Convert split fractions to integer per-class counts."""
+    # Floor the ideal fractional counts, then distribute leftover samples to
+    # the splits with the largest fractional remainders.
     raw = np.asarray(fractions, dtype=float) * n_items
     counts = np.floor(raw).astype(int)
     remainder = n_items - counts.sum()
@@ -138,15 +151,21 @@ def make_split_tensors(samples, labels, train, val, test):
     if any(len(indices) == 0 for indices in (train, val, test)):
         raise ValueError("Train, validation, and test splits must be non-empty")
 
+    # Fit normalization only on the training split to avoid leaking validation
+    # or test distribution information into the model.
     train_mean = samples[train].mean(axis=0)
     train_std = samples[train].std(axis=0)
     train_std[train_std < 1e-6] = 1.0
 
     def tensor_pair(indices):
+        """Return normalized feature and label tensors for one index split."""
+        # Reuse the training mean/std for every split, then convert NumPy arrays
+        # into the torch tensors expected by the training loop.
         x = (samples[indices] - train_mean) / train_std
         y = labels[indices].astype(np.int64)
         return torch.from_numpy(x.astype(np.float32)), torch.from_numpy(y)
 
+    # Weighted loss compensates for uneven class counts in the training split.
     class_weights = compute_class_weights(labels[train])
     return {
         "train": tensor_pair(train),
@@ -162,6 +181,8 @@ def compute_class_weights(labels):
     counts = np.bincount(labels, minlength=len(CLASS_NAMES))
     weights = np.zeros(len(CLASS_NAMES), dtype=np.float32)
     present = counts > 0
+    # Classes with fewer training samples receive larger weights. Missing
+    # classes stay at zero, although valid stratified splits should avoid them.
     weights[present] = len(labels) / (present.sum() * counts[present])
     return weights
 
@@ -170,15 +191,17 @@ class SimpleMLP(nn.Module):
     """Compact one-hidden-layer classifier."""
 
     def __init__(self, input_size, output_size, hidden_size=DEFAULT_HIDDEN_SIZE):
+        """Create the linear, activation, dropout, and output layers."""
         super().__init__()
         self.layers = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.1),
             nn.Linear(hidden_size, output_size),
         )
 
     def forward(self, x):
+        """Compute class logits for a batch of flattened graph features."""
         return self.layers(x)
 
 
@@ -191,11 +214,13 @@ def train_model(
     epochs=500,
     patience=50,
     lr=1e-3,
-    weight_decay=1e-3,
+    weight_decay=1e-4,
 ):
     """Train a model with validation-loss early stopping."""
     train_x, train_y = train_data
     val_x, val_y = val_data
+    # class_weights can be None to disable weighting, otherwise it is converted
+    # to a tensor on the same device and dtype as the training features.
     weight = None if class_weights is None else torch.as_tensor(
         class_weights,
         dtype=train_x.dtype,
@@ -208,16 +233,22 @@ def train_model(
     stale_epochs = 0
 
     for epoch in range(1, epochs + 1):
+        # Training step: compute loss on the full training tensor, backpropagate,
+        # and update weights with AdamW.
         model.train()
         optimizer.zero_grad()
         loss = criterion(model(train_x), train_y)
         loss.backward()
         optimizer.step()
 
+        # Validation step: evaluate without gradients so validation does not
+        # affect model parameters or consume extra autograd memory.
         model.eval()
         with torch.no_grad():
             val_loss = val_criterion(model(val_x), val_y).item()
 
+        # Keep an in-memory copy of the best state so the returned model is the
+        # best validation checkpoint, not merely the final epoch.
         if val_loss < best["loss"]:
             best = {
                 "loss": val_loss,
@@ -233,6 +264,8 @@ def train_model(
                 f"Epoch [{epoch}/{epochs}], train loss: {loss.item():.4f}, "
                 f"val loss: {val_loss:.4f}"
             )
+        # Stop once validation loss has failed to improve for `patience`
+        # consecutive epochs.
         if stale_epochs >= patience:
             print(f"Early stopping at epoch {epoch}")
             break
@@ -264,13 +297,19 @@ def accuracy(model, data):
 def evaluate_model(model, data, class_names=CLASS_NAMES):
     """Return balanced accuracy, confusion matrix, and text report."""
     features, labels = data
+    # Convert torch tensors to NumPy arrays because the report is computed with
+    # explicit array operations rather than a metrics library.
     pred = predict_labels(model, features).cpu().numpy()
     true = labels.cpu().numpy()
     names = list(class_names)
 
+    # Confusion matrix convention: rows are true classes, columns are predicted
+    # classes, matching the text printed in the generated report.
     confusion = np.zeros((len(names), len(names)), dtype=np.int64)
     np.add.at(confusion, (true, pred), 1)
 
+    # Derive per-class metrics directly from the confusion matrix. np.divide
+    # avoids warnings and fills zero when a denominator is zero.
     support = confusion.sum(axis=1)
     predicted = confusion.sum(axis=0)
     true_positive = confusion.diagonal()
@@ -303,8 +342,12 @@ def train_and_evaluate(
     external_test = train_dataset_dirs is not None or test_dataset_dirs is not None
     results = {}
 
+    # Train an independent classifier for each connectivity representation so
+    # their test metrics can be compared under the same training code.
     for method in METHODS:
         if external_test:
+            # External-test mode trains/validates on one dataset group and tests
+            # on a separate dataset group.
             samples, labels, subject_ids, train, val, test = external_test_data(
                 train_dataset_dirs,
                 test_dataset_dirs,
@@ -313,14 +356,20 @@ def train_and_evaluate(
             )
             heading = f"{method.upper()} EXTERNAL TEST"
         else:
+            # Standard mode loads all requested datasets together and creates a
+            # stratified within-dataset train/validation/test split.
             samples, labels, subject_ids = load_samples(dataset_dirs, method)
             train, val, test = stratified_train_val_test(labels, seed)
             heading = method.upper()
 
+        # Build normalized tensors after the split so test samples never
+        # influence the scaling parameters.
         dataset = make_split_tensors(samples, labels, train, val, test)
         print(f"\n{heading}")
         print(f"Train / validation / test: {dataset['sizes']}")
 
+        # Reset torch's RNG before each method so differences are driven by the
+        # input graph representation rather than random initialization.
         torch.manual_seed(seed)
         model = SimpleMLP(samples.shape[1], len(CLASS_NAMES))
         training = train_model(
@@ -332,6 +381,8 @@ def train_and_evaluate(
             patience=patience,
         )
         balanced, confusion, report = evaluate_model(model, dataset["test"])
+        # Store both scalar metrics and the exact subject IDs used in each split
+        # so plots and reports can later verify provenance.
         results[method] = {
             "balanced_accuracy": balanced,
             "accuracy": accuracy(model, dataset["test"]),
@@ -353,9 +404,12 @@ def external_test_data(train_dirs, test_dirs, method, seed):
     if not train_dirs or not test_dirs:
         raise ValueError("External testing requires train and test dataset dirs")
 
+    # Load the two groups independently first so their subject IDs remain clear.
     train_x, train_y, train_ids = load_samples(train_dirs, method)
     test_x, test_y, test_ids = load_samples(test_dirs, method)
 
+    # Split only the training group into train/validation. The external group is
+    # appended afterward and used entirely as the test split.
     train, val = stratified_train_val(train_y, seed=seed)
     test = np.arange(len(train_x), len(train_x) + len(test_x), dtype=np.int64)
     return (
@@ -369,6 +423,7 @@ def external_test_data(train_dirs, test_dirs, method, seed):
 
 
 def parse_args():
+    """Parse command-line options for MLP training and evaluation."""
     parser = argparse.ArgumentParser(description="Train MLP baselines.")
     parser.add_argument("--dataset-dir", action="append", type=Path)
     parser.add_argument("--train-dataset-dir", action="append", type=Path)
@@ -380,6 +435,7 @@ def parse_args():
 
 
 def main():
+    """Run training from CLI arguments and write the results JSON file."""
     args = parse_args()
     dataset_dirs = args.dataset_dir or DEFAULT_DATASET_DIRS
     results = train_and_evaluate(
