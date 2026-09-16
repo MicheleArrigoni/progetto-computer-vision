@@ -1,8 +1,12 @@
 {
-  "project_root": "C:\\Users\\mikyx\\Desktop\\progetto-computer-vision",
-  "dataset_dir": "C:\\Users\\mikyx\\Desktop\\progetto-computer-vision\\dataset",
-  "derivatives_dir": "C:\\Users\\mikyx\\Desktop\\progetto-computer-vision\\dataset\\brainlat_derivatives",
-  "output_dir": "C:\\Users\\mikyx\\Desktop\\progetto-computer-vision\\data_hgcn_ready",
+  "excluded_subjects": {
+    "openneuro": [
+      "sub-086"
+    ],
+    "brainlat": [
+      "sub-078"
+    ]
+  },
   "target_fs": 100,
   "low_freq": 0.5,
   "high_freq": 40.0,
@@ -10,7 +14,7 @@
   "epoch_length_sec": 5,
   "overlap": 0.0,
   "maxlag": 4,
-  "alpha": 0.05,
+  "alpha": 0.01,
   "max_diffs": 2,
   "varlingam_criterion": "bic",
   "varlingam_prune": true,
