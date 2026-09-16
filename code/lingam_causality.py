@@ -18,7 +18,7 @@ def _compute_lingam_epoch(epoch: np.ndarray, epoch_idx: int) -> np.ndarray:
     """Fit VARLiNGAM to one EEG epoch and aggregate its lag matrices.
 
     Parameters
-    ----------
+    ----------       
     epoch:
         EEG data with shape ``(n_channels, n_timepoints)``.
     epoch_idx:
