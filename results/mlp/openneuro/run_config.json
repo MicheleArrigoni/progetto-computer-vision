@@ -1,0 +1,12 @@
+{
+  "dataset": "openneuro",
+  "seed": 42,
+  "epochs": 500,
+  "patience": 50,
+  "hidden_size": 16,
+  "dropout": 0.3,
+  "lr": 0.001,
+  "weight_decay": 0.001,
+  "torch_version": "2.9.1+rocm7.2.1",
+  "threads": 1
+}
