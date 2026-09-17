@@ -1,22 +1,22 @@
 {
   "granger": {
-    "balanced_accuracy": 0.4238095238095238,
+    "balanced_accuracy": 0.4317460317460317,
     "accuracy": 0.4444444477558136,
     "training": {
-      "epochs_run": 103,
-      "best_epoch": 53,
-      "best_val_loss": 0.6556301712989807
+      "epochs_run": 66,
+      "best_epoch": 16,
+      "best_val_loss": 0.5031318068504333
     },
     "confusion_matrix": [
       [
-        3,
-        0,
-        3
+        4,
+        1,
+        1
       ],
       [
-        1,
-        4,
-        2
+        3,
+        3,
+        1
       ],
       [
         2,
@@ -24,7 +24,7 @@
         1
       ]
     ],
-    "classification_report": "     class  precision     recall         f1    support\n        CN       0.50       0.50       0.50          6\n        AD       0.67       0.57       0.62          7\n       FTD       0.17       0.20       0.18          5\nAccuracy: 0.444",
+    "classification_report": "     class  precision     recall         f1    support\n        CN       0.44       0.67       0.53          6\n        AD       0.50       0.43       0.46          7\n       FTD       0.33       0.20       0.25          5\nAccuracy: 0.444",
     "train_subjects": [
       "openneuro:sub-021",
       "openneuro:sub-060",
@@ -120,31 +120,31 @@
     ]
   },
   "lingam": {
-    "balanced_accuracy": 0.4396825396825397,
-    "accuracy": 0.4444444477558136,
+    "balanced_accuracy": 0.6047619047619048,
+    "accuracy": 0.6111111044883728,
     "training": {
-      "epochs_run": 500,
-      "best_epoch": 500,
-      "best_val_loss": 0.09371878951787949
+      "epochs_run": 70,
+      "best_epoch": 20,
+      "best_val_loss": 0.4209044873714447
     },
     "confusion_matrix": [
       [
-        5,
-        0,
+        3,
+        2,
         1
       ],
       [
         2,
+        5,
+        0
+      ],
+      [
+        0,
         2,
         3
-      ],
-      [
-        1,
-        3,
-        1
       ]
     ],
-    "classification_report": "     class  precision     recall         f1    support\n        CN       0.62       0.83       0.71          6\n        AD       0.40       0.29       0.33          7\n       FTD       0.20       0.20       0.20          5\nAccuracy: 0.444",
+    "classification_report": "     class  precision     recall         f1    support\n        CN       0.60       0.50       0.55          6\n        AD       0.56       0.71       0.63          7\n       FTD       0.75       0.60       0.67          5\nAccuracy: 0.611",
     "train_subjects": [
       "openneuro:sub-021",
       "openneuro:sub-060",
@@ -240,18 +240,18 @@
     ]
   },
   "pcmci": {
-    "balanced_accuracy": 0.25396825396825395,
-    "accuracy": 0.2777777910232544,
+    "balanced_accuracy": 0.4428571428571429,
+    "accuracy": 0.4444444477558136,
     "training": {
-      "epochs_run": 240,
-      "best_epoch": 190,
-      "best_val_loss": 0.5334020256996155
+      "epochs_run": 54,
+      "best_epoch": 4,
+      "best_val_loss": 0.6817729473114014
     },
     "confusion_matrix": [
       [
-        2,
-        0,
-        4
+        3,
+        1,
+        2
       ],
       [
         1,
@@ -259,12 +259,12 @@
         3
       ],
       [
-        0,
-        5,
-        0
+        1,
+        2,
+        2
       ]
     ],
-    "classification_report": "     class  precision     recall         f1    support\n        CN       0.67       0.33       0.44          6\n        AD       0.38       0.43       0.40          7\n       FTD       0.00       0.00       0.00          5\nAccuracy: 0.278",
+    "classification_report": "     class  precision     recall         f1    support\n        CN       0.60       0.50       0.55          6\n        AD       0.50       0.43       0.46          7\n       FTD       0.29       0.40       0.33          5\nAccuracy: 0.444",
     "train_subjects": [
       "openneuro:sub-021",
       "openneuro:sub-060",

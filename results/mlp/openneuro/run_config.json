@@ -3,10 +3,14 @@
   "seed": 42,
   "epochs": 500,
   "patience": 50,
-  "hidden_size": 16,
-  "dropout": 0.3,
-  "lr": 0.001,
-  "weight_decay": 0.001,
+  "hidden_size": 32,
+  "dropout": 0.1,
+  "lr": 0.005,
+  "weight_decay": 0.0001,
   "torch_version": "2.9.1+rocm7.2.1",
-  "threads": 1
+  "threads": 1,
+  "created_at_utc": "2026-09-17T10:08:40.723999+00:00",
+  "sha256_model_source": "92182f0ac78c2b592520a5170b78efeea4b84b0b2ae052204b7a3fd194d3d686",
+  "sha256_results": "982e9a7da04691bd827b4667c2db5f21dd160ce49854560952bb488f45f393b6",
+  "sha256_model_inputs": "d802f8ab32745421f550b13d7d309a906545fbc167c79a6473bc8949dcbe4142"
 }
