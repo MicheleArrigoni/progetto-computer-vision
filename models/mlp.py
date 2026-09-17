@@ -15,8 +15,8 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_ROOT = PROJECT_ROOT / "data_hgcn_ready"
 DEFAULT_DATASET_DIRS = (
-    DEFAULT_DATASET_ROOT / "openneuro",
-    #DEFAULT_DATASET_ROOT / "brainlat",
+    #DEFAULT_DATASET_ROOT / "openneuro",
+    DEFAULT_DATASET_ROOT / "brainlat",
 )
 METHODS = ("granger", "lingam", "pcmci")
 CLASS_NAMES = ("CN", "AD", "FTD")
@@ -213,7 +213,7 @@ def train_model(
     class_weights="balanced",
     epochs=500,
     patience=50,
-    lr=1e-3,
+    lr=5e-3,
     weight_decay=1e-4,
 ):
     """Train a model with validation-loss early stopping."""
