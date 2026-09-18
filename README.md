@@ -4,6 +4,10 @@ Transforming resting-state EEG recordings into subject-level graphs and comparin
 
 Computer Vision project by **Michele Arrigoni**.
 
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](.python-version)
+[![UV](https://img.shields.io/badge/uv-0.4.26-ff69b4.svg)](https://pypa.github.io/uv/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ## Overview
 
 Each subject is represented by 19 EEG channels, eight features per channel and a directed connectivity matrix. The target classes are:
@@ -85,7 +89,7 @@ The label mapping in `preprocessing.py` is specific to the OpenNeuro subject num
 
 ## Installation
 
-Use **Python 3.12**. The project environment is managed with `uv` and described by [pyproject.toml](pyproject.toml) and `uv.lock`.
+Use **Python 3.12** (specified in `.python-version`). The project environment is managed with `uv` and described by [pyproject.toml](pyproject.toml) and `uv.lock`.
 
 The dependency configuration currently pins **Windows AMD ROCm wheels**, including PyTorch `2.9.1+rocm7.2.1`. It is not a platform-neutral environment specification. On the matching platform, run from the repository root:
 
@@ -95,13 +99,23 @@ uv sync
 
 For a different platform or PyTorch backend, adapt the ROCm dependencies and `[tool.uv.sources]` entries in a local environment configuration before installation.
 
-Figure generation additionally imports Matplotlib, which is not currently declared in `pyproject.toml`:
+Figure generation additionally imports Matplotlib, which is available as a dependency but not currently declared in `pyproject.toml`:
 
 ```powershell
 uv pip install matplotlib
 ```
 
 The OpenNeuro download notebook also requires a notebook-capable editor or Jupyter environment. Use the script entry points below to run the analysis; the package's console entry point does not launch the pipeline.
+
+## Console script
+
+The project defines a console script in `pyproject.toml`:
+
+```powershell
+uv run progetto-computer-vision
+```
+
+This invokes `progetto_computer_vision:main` from the `src/progetto_computer_vision/` package, which currently prints a greeting. Extend the `main()` function in `src/progetto_computer_vision/__init__.py` to launch the pipeline.
 
 ## Run the project
 
@@ -181,6 +195,11 @@ This script reads the existing exports and saved predictions, regenerates PDF/PN
 | [docs/report_sintetico_en.tex](docs/report_sintetico_en.tex) | Full English report, methods, results and references |
 | [docs/CHEATSHEET.md](docs/CHEATSHEET.md) | Italian code and library guide |
 | [docs/mappatura_elettrodi_brainlat_openneuro.md](docs/mappatura_elettrodi_brainlat_openneuro.md) | Electrode-mapping notes |
+| [src/progetto_computer_vision/](src/progetto_computer_vision/) | Python package with console entry point |
+| [pyproject.toml](pyproject.toml) | Project configuration and dependencies (uv) |
+| [uv.lock](uv.lock) | Pinned dependency resolution |
+| [.python-version](.python-version) | Python version requirement (3.12) |
+| [.gitignore](.gitignore) | git ignore patterns |
 
 ## Interpretation and next steps
 
