@@ -412,66 +412,6 @@ confounding. ParCorr targets linear conditional relationships, and taking
 absolute values discards their signs. The final filtering uses the returned
 p-values directly, without false-discovery-rate adjustment.
 
-\subsection{Storage of graph variants}
-
-Each connectivity method defines a separate adjacency matrix, preserving
-the distinct statistical meanings of Granger weights, VARLiNGAM coefficients,
-and PCMCI partial correlations. Directed matrices represent source-to-target
-relationships, while symmetric variants support graph models that require
-undirected adjacency.
-The distinction is methodological as well as computational: the directed
-variant is used when the model can exploit source--target orientation, whereas
-the symmetric variant treats an interaction as an undirected neighborhood
-relationship. They therefore answer different modelling questions.
-
-For finite estimator outputs, the normalization can be written as
-\[
-    S_s^{(m)}=\frac{W_s^{(m)}+(W_s^{(m)})^\top}{2},
-    \qquad c_s^{(m)}=\max_{i,j}S_{s,ij}^{(m)}.
-\]
-When $c_s^{(m)}>0$, the saved representations are
-\[
-    A_{s,\mathrm{normal}}^{(m)}=W_s^{(m)}/c_s^{(m)},
-    \qquad
-    A_{s,\mathrm{symmetric}}^{(m)}=S_s^{(m)}/c_s^{(m)}.
-\]
-If the maximum is zero, division is skipped. The symmetric preparation
-replaces non-finite entries with zero and clears the diagonal; the directed
-branch is not independently sanitized, so finite estimator outputs are
-required for the interpretation above. Self-loops are disabled in the
-configuration used here.
-
-The normalization factor is calculated separately for each subject and
-method. It preserves direction in the normal variant but changes the scale
-of the raw estimator weights. In particular, directed values can exceed
-one because the denominator is the maximum of the symmetric matrix, not
-of the directed matrix. Thus a saved Granger value is not directly the
-fraction of significant tests, and a saved PCMCI value is not directly a
-partial correlation. Symmetrization also removes directional asymmetry:
-a one-way link contributes half its raw weight to both symmetric entries
-before normalization. The two variants support different graph operations
-and should not be interpreted interchangeably.
-This normalization is useful for machine-learning inputs because it keeps
-matrices from subjects with very different raw scales in a comparable numeric
-range. The trade-off is that normalized weights describe relative within-
-subject connectivity for a method, not an absolute physiological coupling
-strength.
-
-For every subject and every method $m\in\methodset$, the pipeline stores:
-\begin{itemize}
-    \item \texttt{A\_granger\_normal.npy},
-          \texttt{A\_lingam\_normal.npy}, and
-          \texttt{A\_pcmci\_normal.npy}: directed matrices;
-    \item \texttt{A\_granger\_symmetric.npy},
-          \texttt{A\_lingam\_symmetric.npy}, and
-          \texttt{A\_pcmci\_symmetric.npy}: undirected views for models that
-          require symmetric message passing.
-\end{itemize}
-The directed convention is:
-\[
-    A_{ij}>0 \quad\Longleftrightarrow\quad j\rightarrow i.
-\]
-
 \section{Connectivity Results}
 
 \subsection{Dataset-specific averaging and display rules}
@@ -769,29 +709,6 @@ At dataset level, \texttt{summary.csv}, \texttt{config.json},
 \texttt{splits.json}, and \texttt{graphs.pkl} provide traceability and
 reproducibility.
 
-\subsection{Reproducing the updated report figures}
-
-Run \texttt{uv run python code/update\_report\_figures.py} from the
-repository root to rebuild the figures and tables from the current graph
-exports and the saved dataset-specific MLP results. This command does not
-retrain the models. Tables and figure references are embedded directly in
-this LaTeX source; no external generated LaTeX fragments are required.
-Figures are saved in \texttt{figures/} as both vector PDF and PNG files.
-The source supports compilation from the repository root or from \texttt{docs/}.
-
-MLP metrics and subject splits are stored separately under
-\texttt{results/mlp/openneuro/} and \texttt{results/mlp/brainlat/}, with the
-run configuration alongside each result. The connectivity statistics are
-saved in \texttt{figures/connectivity\_by\_dataset.csv}; the input manifest
-\texttt{figures/report\_inputs.json} records subject IDs and an SHA-256 digest
-of the feature, label, metadata and directed-adjacency inputs for each dataset.
-The original \texttt{connectivity\_networks.pdf} and
-\texttt{connectivity\_summary.pdf} are replaced with updated two-page files:
-page 1 is OpenNeuro and page 2 is BrainLat. The report includes each page
-in its corresponding dataset subsection. The matching PNG files show the
-two datasets in separate panels, and \texttt{connectivity\_summary.csv}
-contains the updated statistics with an explicit dataset column.
-
 \section{Limitations and Future Work}
 
 The EEG-to-graph pipeline and classification experiments have several
@@ -824,80 +741,5 @@ On BrainLat, Granger and VARLiNGAM tie for the highest observed test balanced ac
 Dataset-specific connectivity figures preserve the distinction
 between the two cohorts. The results remain preliminary and require
 validation across repeated splits and independent cohorts.
-
-\begin{thebibliography}{10}
-
-\bibitem{varlingamdocs}
-LiNGAM developers.
-\newblock VARLiNGAM: Model and implementation documentation.
-\newblock \url{https://lingam.readthedocs.io/en/latest/tutorial/var.html}.
-Accessed September 13, 2026.
-
-\bibitem{tigramitedocs}
-Tigramite developers.
-\newblock PCMCI and ParCorr API documentation.
-\newblock \url{https://jakobrunge.github.io/tigramite/}.
-Accessed September 13, 2026.
-
-\bibitem{welch1967}
-P. Welch.
-\newblock The use of fast Fourier transform for the estimation of power
-spectra: a method based on time averaging over short, modified periodograms.
-\newblock \emph{IEEE Transactions on Audio and Electroacoustics},
-15(2):70--73, 1967.
-
-\bibitem{dickey1979}
-D. A. Dickey and W. A. Fuller.
-\newblock Distribution of the estimators for autoregressive time series with a
-unit root.
-\newblock \emph{Journal of the American Statistical Association},
-74(366):427--431, 1979.
-
-\bibitem{kpss1992}
-D. Kwiatkowski, P. C. B. Phillips, P. Schmidt, and Y. Shin.
-\newblock Testing the null hypothesis of stationarity against the alternative
-of a unit root.
-\newblock \emph{Journal of Econometrics}, 54(1--3):159--178, 1992.
-
-\bibitem{granger1969}
-C. W. J. Granger.
-\newblock Investigating causal relations by econometric models and
-cross-spectral methods.
-\newblock \emph{Econometrica}, 37(3):424--438, 1969.
-
-\bibitem{shimizu2006}
-S. Shimizu, P. O. Hoyer, A. Hyvarinen, and A. Kerminen.
-\newblock A linear non-Gaussian acyclic model for causal discovery.
-\newblock \emph{Journal of Machine Learning Research}, 7:2003--2030, 2006.
-
-\bibitem{shimizu2011}
-S. Shimizu, T. Inazumi, Y. Sogawa, A. Hyvarinen, Y. Kawahara, T. Washio,
-P. O. Hoyer, and K. Bollen.
-\newblock DirectLiNGAM: A direct method for learning a linear non-Gaussian
-structural equation model.
-\newblock \emph{Journal of Machine Learning Research}, 12:1225--1248, 2011.
-
-\bibitem{runge2019}
-J. Runge, S. Bathiany, E. Bollt, G. Camps-Valls, D. Coumou, E. Deyle,
-C. Glymour, M. Kretschmer, M. D. Mahecha, J. Munoz-Mari, E. H. van Nes,
-J. Peters, R. Quax, M. Reichstein, M. Scheffer, B. Scholkopf, P. Spirtes,
-G. Sugihara, J. Sun, K. Zhang, and J. Zscheischler.
-\newblock Detecting and quantifying causal associations in large nonlinear
-time series datasets.
-\newblock \emph{Science Advances}, 5(11), 2019.
-
-\bibitem{kipf2017}
-T. N. Kipf and M. Welling.
-\newblock Semi-supervised classification with graph convolutional networks.
-\newblock In \emph{International Conference on Learning Representations},
-2017.
-
-\bibitem{chami2019}
-I. Chami, Z. Ying, C. Re, and J. Leskovec.
-\newblock Hyperbolic graph convolutional neural networks.
-\newblock In \emph{Advances in Neural Information Processing Systems},
-volume 32, 2019.
-
-\end{thebibliography}
 
 \end{document}
