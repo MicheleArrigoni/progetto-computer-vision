@@ -70,11 +70,15 @@ def _compute_pcmci_epoch(
             cond_ind_test=parcorr,
         )
 
+        # Run PCMCI with the specified maximum lag and significance threshold.
         results = pcmci_instance.run_pcmci(
             tau_max=tau_max,
             pc_alpha=alpha_level,
         )
 
+        # Extract the p-value and effect-size matrices from the results. The
+        # last axis indexes lags, starting from zero. The first two axes index
+        # source and target channels, respectively.
         p_matrix = results["p_matrix"]
         val_matrix = results["val_matrix"]
         # Entries remain zero when no tested lag is significant.
